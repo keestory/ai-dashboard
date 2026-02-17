@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 
 // Plan-based file size limits
 const PLAN_LIMITS: Record<string, number> = {
@@ -19,14 +19,15 @@ const ALLOWED_MIME_TYPES = [
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    const adminClient = createAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile for plan info
-    const { data: profile } = await supabase
+    // Get user profile for plan info (use admin client to bypass RLS)
+    const { data: profile } = await adminClient
       .from('profiles')
       .select('plan')
       .eq('id', user.id)
@@ -69,8 +70,8 @@ export async function POST(request: NextRequest) {
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
     const filePath = `${user.id}/${timestamp}_${sanitizedName}`;
 
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    // Upload to Supabase Storage (use admin client to bypass RLS)
+    const { data: uploadData, error: uploadError } = await adminClient.storage
       .from('uploads')
       .upload(filePath, file, {
         contentType: file.type,
@@ -85,8 +86,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create analysis record
-    const { data: analysis, error: analysisError } = await supabase
+    // Create analysis record (use admin client to bypass RLS)
+    const { data: analysis, error: analysisError } = await adminClient
       .from('analyses')
       .insert({
         workspace_id: workspaceId,
@@ -104,23 +105,14 @@ export async function POST(request: NextRequest) {
     if (analysisError) {
       console.error('Analysis creation error:', analysisError);
       // Clean up uploaded file
-      await supabase.storage.from('uploads').remove([uploadData.path]);
+      await adminClient.storage.from('uploads').remove([uploadData.path]);
       return NextResponse.json(
         { error: 'Failed to create analysis record' },
         { status: 500 }
       );
     }
 
-    // Trigger analysis processing (Edge Function)
-    // Note: In production, this would call a Supabase Edge Function
-    try {
-      await supabase.functions.invoke('process-analysis', {
-        body: { analysisId: analysis.id },
-      });
-    } catch (funcError) {
-      // Edge function might not be deployed yet, continue anyway
-      console.log('Edge function not available, analysis will be processed manually');
-    }
+    // Skip Edge Function in local dev - analysis is triggered by client via /api/analyze
 
     return NextResponse.json({
       success: true,

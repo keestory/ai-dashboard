@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+
+// Allow longer execution for AI analysis
+export const maxDuration = 120; // 2 minutes
 
 interface ColumnInfo {
   name: string;
@@ -25,11 +28,48 @@ interface Summary {
     name: string;
     topValues: { value: string; count: number }[];
   }[];
+  businessKPIs?: {
+    label: string;
+    value: string;
+    change?: string;
+    changeType?: 'positive' | 'negative' | 'neutral';
+  }[];
+  executiveSummary?: string;
+}
+
+interface AIAnalysisResult {
+  executiveSummary: string;
+  businessKPIs: {
+    label: string;
+    value: string;
+    change?: string;
+    changeType?: 'positive' | 'negative' | 'neutral';
+  }[];
+  insights: {
+    type: string;
+    title: string;
+    description: string;
+    importance: string;
+    data: unknown;
+  }[];
+  actions: {
+    title: string;
+    description: string;
+    priority: string;
+  }[];
+  chartSuggestions: {
+    type: string;
+    title: string;
+    xKey: string;
+    yKey: string;
+    description: string;
+  }[];
 }
 
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    const adminClient = createAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -43,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get analysis record
-    const { data: analysis, error: analysisError } = await supabase
+    const { data: analysis, error: analysisError } = await adminClient
       .from('analyses')
       .select('*')
       .eq('id', analysisId)
@@ -54,13 +94,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Update status to processing
-    await supabase
+    await adminClient
       .from('analyses')
       .update({ status: 'processing' })
       .eq('id', analysisId);
 
     // Download file
-    const { data: fileData, error: downloadError } = await supabase.storage
+    const { data: fileData, error: downloadError } = await adminClient.storage
       .from('uploads')
       .download(analysis.file_url);
 
@@ -76,31 +116,36 @@ export async function POST(request: NextRequest) {
       throw new Error('No data found in file');
     }
 
-    // Analyze data
+    // Analyze data structure
     const columns = analyzeColumns(parsedData);
     const summary = calculateSummary(parsedData, columns);
 
-    // Generate charts
-    const charts = generateCharts(parsedData, columns, summary);
-
-    // Generate AI insights
-    let insights: { type: string; title: string; description: string; importance: string; data: unknown }[] = [];
-
+    // Generate AI analysis (single comprehensive call)
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    let aiResult: AIAnalysisResult | null = null;
+
     if (anthropicKey) {
       const anthropic = new Anthropic({ apiKey: anthropicKey });
-      insights = await generateAIInsights(anthropic, parsedData, columns, summary);
-    } else {
-      // Generate basic insights without AI
-      insights = generateBasicInsights(summary);
+      aiResult = await generateComprehensiveAnalysis(anthropic, parsedData, columns, summary);
     }
 
-    // Generate actions
-    const actions = generateActions(insights);
+    // Build charts: AI-suggested + fallback auto-generated
+    const charts = buildCharts(parsedData, columns, summary, aiResult?.chartSuggestions || []);
+
+    // Use AI results or fallback
+    const insights = aiResult?.insights || generateBasicInsights(summary);
+    const actions = aiResult?.actions || generateBasicActions(insights);
+
+    // Store business KPIs and executive summary in summary
+    const enrichedSummary: Summary = {
+      ...summary,
+      businessKPIs: aiResult?.businessKPIs || [],
+      executiveSummary: aiResult?.executiveSummary || '',
+    };
 
     // Save results
     if (insights.length > 0) {
-      await supabase
+      await adminClient
         .from('insights')
         .insert(insights.map(i => ({
           analysis_id: analysisId,
@@ -113,7 +158,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (charts.length > 0) {
-      await supabase
+      await adminClient
         .from('charts')
         .insert(charts.map((c, index) => ({
           analysis_id: analysisId,
@@ -126,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (actions.length > 0) {
-      await supabase
+      await adminClient
         .from('actions')
         .insert(actions.map(a => ({
           analysis_id: analysisId,
@@ -137,13 +182,13 @@ export async function POST(request: NextRequest) {
         })));
     }
 
-    // Update analysis
-    await supabase
+    // Update analysis with enriched summary
+    await adminClient
       .from('analyses')
       .update({
         status: 'completed',
         columns: columns,
-        summary: summary,
+        summary: enrichedSummary,
         row_count: parsedData.length,
         column_count: columns.length,
         completed_at: new Date().toISOString(),
@@ -153,7 +198,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       analysisId,
-      summary,
+      summary: enrichedSummary,
       insightsCount: insights.length,
       chartsCount: charts.length,
       actionsCount: actions.length,
@@ -167,6 +212,8 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// ── CSV Parsing ─────────────────────────────────────────────
 
 function parseCSV(csvText: string): Record<string, unknown>[] {
   const lines = csvText.trim().split('\n');
@@ -211,6 +258,8 @@ function parseCSVLine(line: string): string[] {
 
   return result;
 }
+
+// ── Column & Summary Analysis ───────────────────────────────
 
 function analyzeColumns(data: Record<string, unknown>[]): ColumnInfo[] {
   if (data.length === 0) return [];
@@ -297,61 +346,190 @@ function calculateSummary(data: Record<string, unknown>[], columns: ColumnInfo[]
   };
 }
 
-function generateCharts(
+// ── Chart Generation ────────────────────────────────────────
+
+function buildCharts(
   data: Record<string, unknown>[],
   columns: ColumnInfo[],
-  summary: Summary
+  summary: Summary,
+  aiSuggestions: AIAnalysisResult['chartSuggestions']
 ): { type: string; title: string; config: unknown; data: unknown }[] {
   const charts: { type: string; title: string; config: unknown; data: unknown }[] = [];
 
-  // KPI cards
-  for (const numCol of summary.numericColumns.slice(0, 4)) {
-    charts.push({
-      type: 'kpi',
-      title: numCol.name,
-      config: { format: 'number' },
-      data: {
-        value: numCol.mean,
-        min: numCol.min,
-        max: numCol.max,
-      },
-    });
+  // Build AI-suggested charts using actual data
+  for (const suggestion of aiSuggestions.slice(0, 4)) {
+    const chartData = buildChartData(data, columns, summary, suggestion);
+    if (chartData) {
+      charts.push({
+        type: suggestion.type,
+        title: suggestion.title,
+        config: { xKey: suggestion.xKey, yKey: suggestion.yKey },
+        data: chartData,
+      });
+    }
   }
 
-  // Bar charts
-  for (const catCol of summary.categoricalColumns.slice(0, 2)) {
-    charts.push({
-      type: 'bar',
-      title: `${catCol.name} 분포`,
-      config: { xKey: 'value', yKey: 'count' },
-      data: catCol.topValues,
-    });
+  // Fallback: auto-generate if AI didn't suggest enough
+  if (charts.length < 2) {
+    for (const catCol of summary.categoricalColumns.slice(0, 2)) {
+      if (!charts.find(c => c.title.includes(catCol.name))) {
+        charts.push({
+          type: 'bar',
+          title: `${catCol.name} 분포`,
+          config: { xKey: 'value', yKey: 'count' },
+          data: catCol.topValues,
+        });
+      }
+    }
   }
 
   return charts;
 }
 
-async function generateAIInsights(
+function buildChartData(
+  data: Record<string, unknown>[],
+  columns: ColumnInfo[],
+  summary: Summary,
+  suggestion: AIAnalysisResult['chartSuggestions'][0]
+): unknown[] | null {
+  const xCol = columns.find(c => c.name === suggestion.xKey);
+  const yCol = columns.find(c => c.name === suggestion.yKey);
+
+  if (!xCol) return null;
+
+  // If categorical x-axis: aggregate by category
+  if (xCol.type === 'string' && yCol && yCol.type === 'number') {
+    const aggregated: Record<string, { sum: number; count: number }> = {};
+    for (const row of data) {
+      const key = String(row[xCol.name] || '');
+      if (!key) continue;
+      if (!aggregated[key]) aggregated[key] = { sum: 0, count: 0 };
+      const val = Number(row[yCol.name]);
+      if (!isNaN(val)) {
+        aggregated[key].sum += val;
+        aggregated[key].count += 1;
+      }
+    }
+    return Object.entries(aggregated)
+      .map(([value, { sum, count }]) => ({
+        [suggestion.xKey]: value,
+        [suggestion.yKey]: Math.round(sum * 100) / 100,
+        count,
+      }))
+      .sort((a, b) => (b[suggestion.yKey] as number) - (a[suggestion.yKey] as number))
+      .slice(0, 10);
+  }
+
+  // If just categorical distribution
+  if (xCol.type === 'string') {
+    const catData = summary.categoricalColumns.find(c => c.name === xCol.name);
+    if (catData) {
+      return catData.topValues.map(v => ({
+        [suggestion.xKey]: v.value,
+        [suggestion.yKey || 'count']: v.count,
+      }));
+    }
+  }
+
+  // If both numeric: scatter/line
+  if (xCol.type === 'number' && yCol && yCol.type === 'number') {
+    return data.slice(0, 50).map(row => ({
+      [suggestion.xKey]: row[xCol.name],
+      [suggestion.yKey]: row[yCol.name],
+    }));
+  }
+
+  return null;
+}
+
+// ── AI: Comprehensive Analysis ──────────────────────────────
+
+async function generateComprehensiveAnalysis(
   anthropic: Anthropic,
   data: Record<string, unknown>[],
   columns: ColumnInfo[],
   summary: Summary
-): Promise<{ type: string; title: string; description: string; importance: string; data: unknown }[]> {
-  const systemPrompt = `You are a business data analyst. Analyze data and generate insights in Korean. Return ONLY valid JSON array.`;
+): Promise<AIAnalysisResult | null> {
+  const systemPrompt = `You are a senior business data analyst and consultant. You analyze data and produce actionable business intelligence.
+
+Your analysis should be like a management consultant's deliverable:
+1. Start with an executive summary (2-3 sentences) that a CEO can understand
+2. Identify the 4 most important business KPIs from the data
+3. Generate insights ordered by business impact (not just statistical findings)
+4. Recommend specific, measurable actions with expected outcomes
+5. Suggest the most informative chart visualizations
+
+Guidelines:
+- All text content must be in Korean
+- Use specific numbers, percentages, and comparisons
+- Focus on "so what?" - every insight must lead to a business implication
+- Actions must be concrete enough to assign to someone
+- Return ONLY valid JSON, no markdown`;
 
   const userPrompt = `
-Data Summary:
-- Rows: ${summary.totalRows}, Columns: ${summary.totalColumns}
-- Numeric: ${JSON.stringify(summary.numericColumns)}
-- Categorical: ${JSON.stringify(summary.categoricalColumns)}
+## Dataset: ${summary.totalRows} rows, ${summary.totalColumns} columns
 
-Generate 3-5 insights as JSON array:
-[{"type":"trend|anomaly|pattern|comparison|summary","title":"제목","description":"설명","importance":"critical|high|medium|low","data":{}}]`;
+## Columns
+${columns.map(c => `- ${c.name} (${c.type}, ${c.uniqueCount} unique values, samples: ${c.sampleValues.slice(0, 3).join(', ')})`).join('\n')}
+
+## Numeric Statistics
+${summary.numericColumns.map(c => `- ${c.name}: avg=${c.mean}, min=${c.min}, max=${c.max}, median=${c.median}, stddev=${c.stdDev}`).join('\n')}
+
+## Categorical Distributions
+${summary.categoricalColumns.map(c => `- ${c.name}: ${c.topValues.map(v => `${v.value}(${v.count})`).join(', ')}`).join('\n')}
+
+## Sample Data (first 5 rows)
+${JSON.stringify(data.slice(0, 5), null, 2)}
+
+## Required Output (JSON)
+Return a single JSON object with this structure:
+{
+  "executiveSummary": "2-3 sentence summary of the most important findings in Korean",
+  "businessKPIs": [
+    {
+      "label": "KPI name in Korean (e.g. 총 매출, 평균 주문액)",
+      "value": "formatted value (e.g. 8,450,000원, 84.5%)",
+      "change": "contextual note (e.g. 최고 카테고리: 아우터)",
+      "changeType": "positive|negative|neutral"
+    }
+  ],
+  "insights": [
+    {
+      "type": "trend|anomaly|pattern|comparison|summary",
+      "title": "Korean title (max 50 chars)",
+      "description": "2-3 sentences in Korean with specific numbers and business implications",
+      "importance": "critical|high|medium|low",
+      "data": { "relevant": "metrics" }
+    }
+  ],
+  "actions": [
+    {
+      "title": "Specific action in Korean (max 50 chars)",
+      "description": "What to do, expected impact, and how to measure success (2-3 sentences in Korean)",
+      "priority": "urgent|high|medium|low"
+    }
+  ],
+  "chartSuggestions": [
+    {
+      "type": "bar|line|pie",
+      "title": "Chart title in Korean",
+      "xKey": "actual column name from data",
+      "yKey": "actual column name from data",
+      "description": "Why this chart is informative"
+    }
+  ]
+}
+
+Requirements:
+- businessKPIs: exactly 4 items, the most business-critical metrics from THIS data
+- insights: 4-6 items, ordered by importance
+- actions: 3-5 items, specific and measurable
+- chartSuggestions: 2-4 items, using actual column names from the data`;
 
   try {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
+      max_tokens: 4000,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -359,18 +537,28 @@ Generate 3-5 insights as JSON array:
     const content = response.content[0];
     if (content.type !== 'text') throw new Error('Unexpected response');
 
-    const jsonMatch = content.text.match(/\[[\s\S]*\]/);
+    // Extract JSON object
+    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON found');
 
-    return JSON.parse(jsonMatch[0]);
+    const result = JSON.parse(jsonMatch[0]) as AIAnalysisResult;
+
+    // Validate required fields
+    if (!result.executiveSummary || !result.businessKPIs || !result.insights) {
+      throw new Error('Incomplete AI response');
+    }
+
+    return result;
   } catch (error) {
-    console.error('AI error:', error);
-    return generateBasicInsights(summary);
+    console.error('AI analysis error:', error);
+    return null;
   }
 }
 
-function generateBasicInsights(summary: Summary): { type: string; title: string; description: string; importance: string; data: unknown }[] {
-  const insights: { type: string; title: string; description: string; importance: string; data: unknown }[] = [];
+// ── Fallbacks ───────────────────────────────────────────────
+
+function generateBasicInsights(summary: Summary): AIAnalysisResult['insights'] {
+  const insights: AIAnalysisResult['insights'] = [];
 
   insights.push({
     type: 'summary',
@@ -393,10 +581,10 @@ function generateBasicInsights(summary: Summary): { type: string; title: string;
   return insights;
 }
 
-function generateActions(
-  insights: { type: string; title: string; description: string; importance: string; data: unknown }[]
-): { title: string; description: string; priority: string }[] {
-  const actions: { title: string; description: string; priority: string }[] = [];
+function generateBasicActions(
+  insights: AIAnalysisResult['insights']
+): AIAnalysisResult['actions'] {
+  const actions: AIAnalysisResult['actions'] = [];
 
   for (const insight of insights) {
     if (insight.importance === 'critical' || insight.importance === 'high') {

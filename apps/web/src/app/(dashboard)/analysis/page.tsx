@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Plus,
   Search,
@@ -13,57 +14,12 @@ import {
   MoreVertical,
   Trash2,
   RefreshCw,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
-import { Button, Card, Input, FileUpload } from '@repo/ui';
+import { Button, Card, FileUpload } from '@repo/ui';
 import { formatRelativeTime, formatBytes } from '@repo/utils';
-
-// Mock data
-const analyses = [
-  {
-    id: '1',
-    name: 'sales_2024.xlsx',
-    fileName: 'sales_2024.xlsx',
-    fileSize: 3456789,
-    status: 'completed' as const,
-    rowCount: 10234,
-    columnCount: 12,
-    insightCount: 5,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '2',
-    name: 'marketing_report.csv',
-    fileName: 'marketing_report.csv',
-    fileSize: 1234567,
-    status: 'completed' as const,
-    rowCount: 5621,
-    columnCount: 8,
-    insightCount: 3,
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '3',
-    name: 'inventory.xlsx',
-    fileName: 'inventory.xlsx',
-    fileSize: 2345678,
-    status: 'processing' as const,
-    rowCount: null,
-    columnCount: null,
-    insightCount: 0,
-    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '4',
-    name: 'customer_data.csv',
-    fileName: 'customer_data.csv',
-    fileSize: 567890,
-    status: 'failed' as const,
-    rowCount: null,
-    columnCount: null,
-    insightCount: 0,
-    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+import { trpc } from '@/lib/trpc';
 
 const statusConfig = {
   completed: {
@@ -93,32 +49,132 @@ const statusConfig = {
 };
 
 export default function AnalysisPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const filteredAnalyses = analyses.filter((a) =>
-    a.name.toLowerCase().includes(searchQuery.toLowerCase())
+  // Optimized: Single query to get workspace + analyses (eliminates waterfall)
+  const { data, isLoading, refetch } = trpc.analysis.listForCurrentUser.useQuery(
+    { limit: 50 }
   );
 
-  const handleUpload = (file: File) => {
+  const workspaceId = data?.workspace?.id;
+  const analyses = data?.items || [];
+
+  // Delete mutation
+  const deleteMutation = trpc.analysis.delete.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+
+  // Rerun mutation
+  const rerunMutation = trpc.analysis.rerun.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+
+  // Filter analyses by search query
+  const filteredAnalyses = useMemo(() => {
+    return analyses.filter((a) =>
+      (a.name || a.file_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [analyses, searchQuery]);
+
+  // Ensure workspace mutation (creates workspace if none exists)
+  const ensureWorkspace = trpc.workspace.getCurrent.useQuery(undefined, {
+    enabled: false, // Only run when manually triggered
+  });
+
+  const handleUpload = async (file: File) => {
     setUploading(true);
-    // Simulate upload progress
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setUploadProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setUploading(false);
-          setShowUploadModal(false);
-          setUploadProgress(0);
-        }, 500);
+    setUploadProgress(10);
+
+    try {
+      // Ensure workspace exists
+      let currentWorkspaceId = workspaceId;
+      if (!currentWorkspaceId) {
+        const result = await ensureWorkspace.refetch();
+        currentWorkspaceId = result.data?.id;
+        if (!currentWorkspaceId) {
+          throw new Error('워크스페이스를 생성할 수 없습니다.');
+        }
       }
-    }, 200);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('workspaceId', currentWorkspaceId);
+
+      setUploadProgress(30);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      const { analysis } = await response.json();
+      setUploadProgress(60);
+
+      // Trigger analysis
+      await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysisId: analysis.id }),
+      });
+
+      setUploadProgress(100);
+
+      setTimeout(() => {
+        setUploading(false);
+        setShowUploadModal(false);
+        setUploadProgress(0);
+        router.push(`/analysis/${analysis.id}`);
+      }, 500);
+    } catch (err) {
+      console.error('Upload error:', err);
+      setUploading(false);
+      setUploadProgress(0);
+      alert(err instanceof Error ? err.message : '업로드에 실패했습니다.');
+    }
   };
+
+  const handleDelete = async (id: string) => {
+    if (confirm('이 분석을 삭제하시겠습니까?')) {
+      deleteMutation.mutate({ id });
+    }
+  };
+
+  const handleRerun = async (id: string) => {
+    rerunMutation.mutate({ id });
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">분석</h1>
+            <p className="text-gray-500">파일을 업로드하고 AI 인사이트를 받으세요</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 text-primary-600 animate-spin mx-auto mb-4" />
+            <p className="text-gray-500">분석 목록 로딩중...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -169,7 +225,8 @@ export default function AnalysisPage() {
             </div>
           ) : (
             filteredAnalyses.map((analysis) => {
-              const status = statusConfig[analysis.status];
+              const statusKey = (analysis.status || 'pending') as keyof typeof statusConfig;
+              const status = statusConfig[statusKey] || statusConfig.pending;
               const StatusIcon = status.icon;
 
               return (
@@ -187,7 +244,7 @@ export default function AnalysisPage() {
                         href={`/analysis/${analysis.id}`}
                         className="font-medium text-gray-900 hover:text-primary-600 truncate"
                       >
-                        {analysis.name}
+                        {analysis.name || analysis.file_name}
                       </Link>
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${status.bgColor} ${status.color}`}
@@ -197,24 +254,24 @@ export default function AnalysisPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                      <span>{formatBytes(analysis.fileSize)}</span>
-                      {analysis.rowCount && (
+                      <span>{formatBytes(analysis.file_size || 0)}</span>
+                      {analysis.row_count && (
                         <>
                           <span>|</span>
-                          <span>{analysis.rowCount.toLocaleString()}행</span>
+                          <span>{analysis.row_count.toLocaleString()}행</span>
                         </>
                       )}
-                      {analysis.insightCount > 0 && (
+                      {analysis.column_count && (
                         <>
                           <span>|</span>
-                          <span>인사이트 {analysis.insightCount}개</span>
+                          <span>{analysis.column_count}열</span>
                         </>
                       )}
                     </div>
                   </div>
 
                   <div className="text-sm text-gray-400 hidden sm:block">
-                    {formatRelativeTime(analysis.createdAt)}
+                    {formatRelativeTime(analysis.created_at)}
                   </div>
 
                   <div className="relative group">
@@ -222,11 +279,19 @@ export default function AnalysisPage() {
                       <MoreVertical className="h-4 w-4 text-gray-500" />
                     </button>
                     <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 hidden group-hover:block z-10">
-                      <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                        <RefreshCw className="h-4 w-4" />
+                      <button
+                        onClick={() => handleRerun(analysis.id)}
+                        disabled={rerunMutation.isPending}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${rerunMutation.isPending ? 'animate-spin' : ''}`} />
                         다시 분석
                       </button>
-                      <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <button
+                        onClick={() => handleDelete(analysis.id)}
+                        disabled={deleteMutation.isPending}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
                         <Trash2 className="h-4 w-4" />
                         삭제
                       </button>

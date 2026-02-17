@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 import {
   BarChart3,
   LayoutDashboard,
@@ -18,6 +19,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { cn } from '@repo/ui';
+import { useAuth } from '@/contexts/auth-context';
 
 const navigation = [
   { name: '대시보드', href: '/dashboard', icon: LayoutDashboard },
@@ -32,8 +34,18 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { user, profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const displayName = profile?.display_name
+    || profile?.name
+    || user?.user_metadata?.full_name
+    || user?.user_metadata?.name
+    || user?.email?.split('@')[0]
+    || '사용자';
+  const userEmail = user?.email || '';
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -122,9 +134,19 @@ export default function DashboardLayout({
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg"
                 >
-                  <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-                    <User className="h-4 w-4 text-primary-600" />
-                  </div>
+                  {avatarUrl ? (
+                    <Image
+                      src={avatarUrl}
+                      alt={displayName}
+                      width={32}
+                      height={32}
+                      className="w-8 h-8 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                      <User className="h-4 w-4 text-primary-600" />
+                    </div>
+                  )}
                   <ChevronDown className="h-4 w-4 text-gray-500" />
                 </button>
 
@@ -134,14 +156,15 @@ export default function DashboardLayout({
                       className="fixed inset-0 z-10"
                       onClick={() => setUserMenuOpen(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
                       <div className="px-4 py-2 border-b border-gray-100">
-                        <p className="font-medium text-gray-900">사용자</p>
-                        <p className="text-sm text-gray-500">user@example.com</p>
+                        <p className="font-medium text-gray-900">{displayName}</p>
+                        <p className="text-sm text-gray-500 truncate">{userEmail}</p>
                       </div>
                       <Link
-                        href="/settings/profile"
+                        href="/settings"
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setUserMenuOpen(false)}
                       >
                         <User className="h-4 w-4" />
                         프로필
@@ -149,11 +172,35 @@ export default function DashboardLayout({
                       <Link
                         href="/settings"
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setUserMenuOpen(false)}
                       >
                         <Settings className="h-4 w-4" />
                         설정
                       </Link>
-                      <button className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          console.log('Logout clicked');
+                          setUserMenuOpen(false);
+
+                          // 서버 측에서 로그아웃 처리 (쿠키 삭제)
+                          try {
+                            await fetch('/api/auth/signout', { method: 'POST' });
+                          } catch (e) {
+                            console.error('Server signout error:', e);
+                          }
+
+                          // 로컬 스토리지에서 Supabase 세션 직접 제거
+                          Object.keys(localStorage).forEach(key => {
+                            if (key.startsWith('sb-')) {
+                              localStorage.removeItem(key);
+                            }
+                          });
+
+                          window.location.href = '/login';
+                        }}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      >
                         <LogOut className="h-4 w-4" />
                         로그아웃
                       </button>

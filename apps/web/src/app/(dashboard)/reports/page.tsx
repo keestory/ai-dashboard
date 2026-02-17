@@ -1,77 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FileText, Download, Trash2, Plus, Loader2 } from 'lucide-react';
 import { Button, Card } from '@repo/ui';
 import { formatRelativeTime } from '@repo/utils';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/contexts/auth-context';
-
-interface Report {
-  id: string;
-  name: string;
-  template: string;
-  pdf_url: string | null;
-  created_at: string;
-  analyses: {
-    id: string;
-    name: string;
-  };
-}
+import { trpc } from '@/lib/trpc';
 
 export default function ReportsPage() {
-  const { user } = useAuth();
-  const supabase = createClient();
+  const { data: reportsData, isLoading: loading, refetch } = trpc.report.list.useQuery({});
+  const reports = (reportsData || []) as any[];
 
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
+  const deleteMutation = trpc.report.delete.useMutation({
+    onSuccess: () => refetch(),
+  });
 
-  useEffect(() => {
-    fetchReports();
-  }, [user]);
-
-  const fetchReports = async () => {
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from('reports')
-      .select(`
-        *,
-        analyses(id, name)
-      `)
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setReports(data as Report[]);
-    }
-    setLoading(false);
+  const handleDownload = (reportId: string) => {
+    const downloadUrl = `/api/reports/generate?reportId=${reportId}`;
+    window.open(downloadUrl, '_blank');
   };
 
-  const handleDownload = async (report: Report) => {
-    if (!report.pdf_url) return;
-
-    const { data, error } = await supabase.storage
-      .from('reports')
-      .createSignedUrl(report.pdf_url, 3600);
-
-    if (!error && data) {
-      window.open(data.signedUrl, '_blank');
-    }
-  };
-
-  const handleDelete = async (reportId: string) => {
+  const handleDelete = (reportId: string) => {
     if (!confirm('리포트를 삭제하시겠습니까?')) return;
-
-    const { error } = await supabase
-      .from('reports')
-      .delete()
-      .eq('id', reportId);
-
-    if (!error) {
-      setReports(reports.filter(r => r.id !== reportId));
-    }
+    deleteMutation.mutate({ id: reportId });
   };
 
   const templateLabels: Record<string, string> = {
@@ -118,7 +68,7 @@ export default function ReportsPage() {
       ) : (
         <Card padding="none">
           <div className="divide-y divide-gray-200">
-            {reports.map((report) => (
+            {reports.map((report: any) => (
               <div
                 key={report.id}
                 className="flex items-center gap-4 p-4 hover:bg-gray-50"
@@ -138,15 +88,14 @@ export default function ReportsPage() {
                   {formatRelativeTime(report.created_at)}
                 </span>
                 <div className="flex items-center gap-2">
-                  {report.pdf_url && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDownload(report)}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDownload(report.id)}
+                    title="PDF 다운로드"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

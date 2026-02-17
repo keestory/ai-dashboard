@@ -1,44 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Upload, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { Button, Card, FileUpload, Input } from '@repo/ui';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/auth-context';
+import { trpc } from '@/lib/trpc';
 
 export default function NewAnalysisPage() {
   const router = useRouter();
-  const { user, profile } = useAuth();
-  const supabase = createClient();
+  const { profile } = useAuth();
 
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [analysisName, setAnalysisName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    // Get default workspace
-    const fetchWorkspace = async () => {
-      if (!user) return;
-
-      const { data } = await supabase
-        .from('workspaces')
-        .select('id')
-        .eq('owner_id', user.id)
-        .limit(1)
-        .single();
-
-      if (data) {
-        setWorkspaceId((data as { id: string }).id);
-      }
-    };
-
-    fetchWorkspace();
-  }, [user]);
+  // tRPC로 현재 워크스페이스 가져오기 (없으면 자동 생성)
+  const { data: workspace, isLoading: workspaceLoading } = trpc.workspace.getCurrent.useQuery();
+  const workspaceId = workspace?.id || null;
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
@@ -50,45 +32,102 @@ export default function NewAnalysisPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!file || !workspaceId) {
+    if (!file) {
       setError('파일을 선택해주세요.');
+      return;
+    }
+
+    if (workspaceLoading) {
+      setError('워크스페이스를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
+    if (!workspaceId) {
+      setError('워크스페이스를 찾을 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.');
       return;
     }
 
     setUploading(true);
     setError('');
+    setUploadProgress(0);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('workspaceId', workspaceId);
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+      // Use XMLHttpRequest for upload progress tracking
+      const uploadResult = await new Promise<{ analysis: { id: string } }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 70); // 0-70% for upload
+            setUploadProgress(percent);
+          }
+        });
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error('Invalid response'));
+            }
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              reject(new Error(data.error || 'Upload failed'));
+            } catch {
+              reject(new Error('Upload failed'));
+            }
+          }
+        });
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.open('POST', '/api/upload');
+        xhr.send(formData);
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Upload failed');
-      }
+      setUploadProgress(75);
 
-      const { analysis } = await response.json();
-
-      // Trigger analysis
-      await fetch('/api/analyze', {
+      // Trigger analysis (AI processing may take 10-30s)
+      const analyzeResponse = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysisId: analysis.id }),
+        body: JSON.stringify({ analysisId: uploadResult.analysis.id }),
+        signal: AbortSignal.timeout(120000), // 2 min timeout
       });
 
+      if (!analyzeResponse.ok) {
+        const data = await analyzeResponse.json();
+        console.error('Analysis error:', data.error);
+        // Still navigate - analysis record exists, can retry later
+      }
+
+      setUploadProgress(100);
+
       // Navigate to analysis page
-      router.push(`/analysis/${analysis.id}`);
+      router.push(`/analysis/${uploadResult.analysis.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '업로드에 실패했습니다.');
+      const errorMessage = err instanceof Error ? err.message : '업로드에 실패했습니다.';
+      // Translate common errors to Korean and provide actionable feedback
+      const errorMap: Record<string, string> = {
+        'File size exceeds limit': '파일 크기가 현재 플랜의 한도를 초과했습니다. 더 작은 파일을 선택하거나 플랜을 업그레이드하세요.',
+        'Upload failed': '파일 업로드에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.',
+        'Analysis not found': '분석을 시작할 수 없습니다. 다시 시도해주세요.',
+        'Invalid file type': '지원하지 않는 파일 형식입니다. Excel(.xlsx, .xls) 또는 CSV 파일만 업로드 가능합니다.',
+        'No data found': '파일에 데이터가 없습니다. 파일 내용을 확인해주세요.',
+      };
+
+      const friendlyError = Object.keys(errorMap).find(key => errorMessage.includes(key));
+      setError(friendlyError ? errorMap[friendlyError] : errorMessage);
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError('');
+    setFile(null);
+    setAnalysisName('');
   };
 
   return (
@@ -133,8 +172,22 @@ export default function NewAnalysisPage() {
 
           {/* Error Message */}
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              {error}
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-red-700 font-medium text-sm">오류가 발생했습니다</p>
+                  <p className="text-red-600 text-sm mt-1">{error}</p>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="mt-3 inline-flex items-center gap-1.5 text-sm text-red-600 hover:text-red-700 font-medium"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    다시 시도
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -147,10 +200,10 @@ export default function NewAnalysisPage() {
             </Link>
             <Button
               type="submit"
-              disabled={!file || uploading}
-              loading={uploading}
+              disabled={!file || uploading || workspaceLoading || !workspaceId}
+              loading={uploading || workspaceLoading}
             >
-              {uploading ? '업로드 중...' : '분석 시작'}
+              {workspaceLoading ? '로딩 중...' : uploading ? (uploadProgress < 70 ? '업로드 중...' : uploadProgress < 100 ? 'AI 분석 중...' : '완료!') : '분석 시작'}
             </Button>
           </div>
         </form>

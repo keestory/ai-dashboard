@@ -3,6 +3,42 @@ import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 
 export const analysisRouter = router({
+  // Optimized: Get analyses for current user without needing workspaceId
+  // This eliminates the waterfall of workspace.getCurrent -> analysis.list
+  listForCurrentUser: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(50).default(20),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit || 20;
+      const userId = ctx.user.id;
+
+      // Get workspace and analyses in a single query
+      const { data: workspaces } = await ctx.adminSupabase
+        .from('workspaces')
+        .select(`
+          id,
+          name,
+          analyses (
+            id, name, description, file_name, file_url, file_size, file_type,
+            status, row_count, column_count, created_at, updated_at, completed_at
+          )
+        `)
+        .eq('owner_id', userId)
+        .order('created_at', { foreignTable: 'analyses', ascending: false })
+        .limit(1);
+
+      const workspace = workspaces?.[0];
+      const analyses = workspace?.analyses || [];
+
+      return {
+        workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
+        items: analyses.slice(0, limit),
+      };
+    }),
+
   list: protectedProcedure
     .input(
       z.object({
@@ -12,7 +48,7 @@ export const analysisRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      let query = ctx.supabase
+      let query = ctx.adminSupabase
         .from('analyses')
         .select('*')
         .eq('workspace_id', input.workspaceId)
@@ -41,7 +77,7 @@ export const analysisRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('analyses')
         .select(`
           *,
@@ -86,7 +122,7 @@ export const analysisRouter = router({
       const sanitizedFileName = input.fileName.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
       const filePath = `${ctx.user.id}/${timestamp}_${sanitizedFileName}`;
 
-      const { data, error } = await ctx.supabase.storage
+      const { data, error } = await ctx.adminSupabase.storage
         .from('uploads')
         .createSignedUploadUrl(filePath);
 
@@ -113,7 +149,7 @@ export const analysisRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('analyses')
         .insert({
           workspace_id: input.workspaceId,
@@ -133,7 +169,7 @@ export const analysisRouter = router({
 
       // Trigger background analysis (Edge Function)
       // In production, this would call a Supabase Edge Function
-      // await ctx.supabase.functions.invoke('process-analysis', {
+      // await ctx.adminSupabase.functions.invoke('process-analysis', {
       //   body: { analysisId: data.id },
       // });
 
@@ -144,17 +180,17 @@ export const analysisRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Get file URL to delete from storage
-      const { data: analysis } = await ctx.supabase
+      const { data: analysis } = await ctx.adminSupabase
         .from('analyses')
         .select('file_url')
         .eq('id', input.id)
         .single();
 
       if (analysis?.file_url) {
-        await ctx.supabase.storage.from('uploads').remove([analysis.file_url]);
+        await ctx.adminSupabase.storage.from('uploads').remove([analysis.file_url]);
       }
 
-      const { error } = await ctx.supabase
+      const { error } = await ctx.adminSupabase
         .from('analyses')
         .delete()
         .eq('id', input.id)
@@ -168,7 +204,7 @@ export const analysisRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Reset status and clear previous results
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('analyses')
         .update({
           status: 'pending',
@@ -186,12 +222,12 @@ export const analysisRouter = router({
       if (error) throw error;
 
       // Delete existing insights, charts, actions
-      await ctx.supabase.from('insights').delete().eq('analysis_id', input.id);
-      await ctx.supabase.from('charts').delete().eq('analysis_id', input.id);
-      await ctx.supabase.from('actions').delete().eq('analysis_id', input.id);
+      await ctx.adminSupabase.from('insights').delete().eq('analysis_id', input.id);
+      await ctx.adminSupabase.from('charts').delete().eq('analysis_id', input.id);
+      await ctx.adminSupabase.from('actions').delete().eq('analysis_id', input.id);
 
       // Trigger reanalysis
-      // await ctx.supabase.functions.invoke('process-analysis', {
+      // await ctx.adminSupabase.functions.invoke('process-analysis', {
       //   body: { analysisId: input.id },
       // });
 

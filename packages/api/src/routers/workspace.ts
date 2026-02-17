@@ -3,8 +3,63 @@ import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 
 export const workspaceRouter = router({
+  // Get current user's workspace (from profile or first owned workspace)
+  // Uses adminSupabase to bypass RLS
+  getCurrent: protectedProcedure.query(async ({ ctx }) => {
+    // First check if user has a current_workspace_id in their profile
+    if (ctx.user?.current_workspace_id) {
+      const { data: workspace } = await ctx.adminSupabase
+        .from('workspaces')
+        .select('*')
+        .eq('id', ctx.user.current_workspace_id)
+        .single();
+
+      if (workspace) return workspace;
+    }
+
+    // Otherwise, get the first workspace they own
+    const { data: ownedWorkspace } = await ctx.adminSupabase
+      .from('workspaces')
+      .select('*')
+      .eq('owner_id', ctx.user.id)
+      .limit(1)
+      .single();
+
+    if (ownedWorkspace) return ownedWorkspace;
+
+    // If no workspace exists, create one
+    const displayName = ctx.user?.display_name || ctx.user?.name || 'User';
+    const { data: newWorkspace, error } = await ctx.adminSupabase
+      .from('workspaces')
+      .insert({
+        name: `${displayName}의 워크스페이스`,
+        owner_id: ctx.user.id,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Add user as admin of their new workspace
+    if (newWorkspace) {
+      await ctx.adminSupabase.from('workspace_members').insert({
+        workspace_id: newWorkspace.id,
+        user_id: ctx.user.id,
+        role: 'admin',
+      });
+
+      // Update profile with current workspace
+      await ctx.adminSupabase
+        .from('profiles')
+        .update({ current_workspace_id: newWorkspace.id })
+        .eq('id', ctx.user.id);
+    }
+
+    return newWorkspace;
+  }),
+
   list: protectedProcedure.query(async ({ ctx }) => {
-    const { data, error } = await ctx.supabase
+    const { data, error } = await ctx.adminSupabase
       .from('workspaces')
       .select(`
         *,
@@ -19,7 +74,7 @@ export const workspaceRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('workspaces')
         .select(`
           *,
@@ -43,7 +98,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('workspaces')
         .insert({
           name: input.name,
@@ -64,7 +119,7 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('workspaces')
         .update({ name: input.name })
         .eq('id', input.id)
@@ -79,7 +134,7 @@ export const workspaceRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { error } = await ctx.supabase
+      const { error } = await ctx.adminSupabase
         .from('workspaces')
         .delete()
         .eq('id', input.id)
@@ -99,7 +154,7 @@ export const workspaceRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // First check if user is workspace owner
-      const { data: workspace } = await ctx.supabase
+      const { data: workspace } = await ctx.adminSupabase
         .from('workspaces')
         .select('owner_id')
         .eq('id', input.workspaceId)
@@ -113,7 +168,7 @@ export const workspaceRouter = router({
       }
 
       // Find user by email
-      const { data: profile } = await ctx.supabase
+      const { data: profile } = await ctx.adminSupabase
         .from('profiles')
         .select('id')
         .eq('email', input.email)
@@ -126,7 +181,7 @@ export const workspaceRouter = router({
         });
       }
 
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('workspace_members')
         .insert({
           workspace_id: input.workspaceId,
@@ -148,9 +203,42 @@ export const workspaceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { error } = await ctx.supabase
+      const { error } = await ctx.adminSupabase
         .from('workspace_members')
         .delete()
+        .eq('workspace_id', input.workspaceId)
+        .eq('user_id', input.userId);
+
+      if (error) throw error;
+      return { success: true };
+    }),
+
+  updateMemberRole: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().uuid(),
+        userId: z.string().uuid(),
+        role: z.enum(['admin', 'member', 'viewer']),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify caller is workspace owner
+      const { data: workspace } = await ctx.adminSupabase
+        .from('workspaces')
+        .select('owner_id')
+        .eq('id', input.workspaceId)
+        .single();
+
+      if (!workspace || workspace.owner_id !== ctx.user.id) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only workspace owner can change member roles',
+        });
+      }
+
+      const { error } = await ctx.adminSupabase
+        .from('workspace_members')
+        .update({ role: input.role })
         .eq('workspace_id', input.workspaceId)
         .eq('user_id', input.userId);
 

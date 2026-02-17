@@ -9,7 +9,7 @@ export const reportRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      let query = ctx.supabase
+      let query = ctx.adminSupabase
         .from('reports')
         .select(`
           *,
@@ -37,7 +37,7 @@ export const reportRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('reports')
         .insert({
           analysis_id: input.analysisId,
@@ -52,7 +52,7 @@ export const reportRouter = router({
       if (error) throw error;
 
       // In production, trigger PDF generation
-      // await ctx.supabase.functions.invoke('generate-report', {
+      // await ctx.adminSupabase.functions.invoke('generate-report', {
       //   body: { reportId: data.id },
       // });
 
@@ -62,7 +62,7 @@ export const reportRouter = router({
   getDownloadUrl: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data: report } = await ctx.supabase
+      const { data: report } = await ctx.adminSupabase
         .from('reports')
         .select('pdf_url')
         .eq('id', input.id)
@@ -73,7 +73,7 @@ export const reportRouter = router({
         return { url: null };
       }
 
-      const { data, error } = await ctx.supabase.storage
+      const { data, error } = await ctx.adminSupabase.storage
         .from('reports')
         .createSignedUrl(report.pdf_url, 3600); // 1 hour
 
@@ -84,17 +84,17 @@ export const reportRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const { data: report } = await ctx.supabase
+      const { data: report } = await ctx.adminSupabase
         .from('reports')
         .select('pdf_url')
         .eq('id', input.id)
         .single();
 
       if (report?.pdf_url) {
-        await ctx.supabase.storage.from('reports').remove([report.pdf_url]);
+        await ctx.adminSupabase.storage.from('reports').remove([report.pdf_url]);
       }
 
-      const { error } = await ctx.supabase
+      const { error } = await ctx.adminSupabase
         .from('reports')
         .delete()
         .eq('id', input.id)

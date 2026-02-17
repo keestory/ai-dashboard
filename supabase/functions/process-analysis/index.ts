@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.16.1';
+import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,14 +82,16 @@ serve(async (req) => {
 
     // Parse the file based on type
     let parsedData: Record<string, unknown>[] = [];
-    const fileText = await fileData.text();
 
     if (analysis.file_type === 'csv') {
+      const fileText = await fileData.text();
       parsedData = parseCSV(fileText);
+    } else if (analysis.file_type === 'xlsx' || analysis.file_type === 'xls') {
+      // Parse Excel file using SheetJS
+      const arrayBuffer = await fileData.arrayBuffer();
+      parsedData = parseExcel(arrayBuffer);
     } else {
-      // For Excel files, we'd need a different approach
-      // For now, return an error for non-CSV files
-      throw new Error('Excel parsing not yet implemented in Edge Functions');
+      throw new Error(`Unsupported file type: ${analysis.file_type}`);
     }
 
     if (parsedData.length === 0) {
@@ -244,6 +247,50 @@ function parseCSVLine(line: string): string[] {
   result.push(current);
 
   return result;
+}
+
+// Parse Excel file using SheetJS
+function parseExcel(arrayBuffer: ArrayBuffer): Record<string, unknown>[] {
+  try {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+    // Get the first sheet
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error('Excel file has no sheets');
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    // Convert to JSON with header option
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+      defval: '', // Default value for empty cells
+      raw: false, // Format dates and numbers as strings first
+    });
+
+    // Process the data to ensure proper types
+    const processedData: Record<string, unknown>[] = jsonData.map((row: unknown) => {
+      const processedRow: Record<string, unknown> = {};
+      const rowObj = row as Record<string, unknown>;
+
+      for (const [key, value] of Object.entries(rowObj)) {
+        if (typeof value === 'string') {
+          // Try to parse as number
+          const numValue = parseFloat(value);
+          processedRow[key] = isNaN(numValue) ? value : numValue;
+        } else {
+          processedRow[key] = value;
+        }
+      }
+
+      return processedRow;
+    });
+
+    return processedData;
+  } catch (error) {
+    console.error('Excel parsing error:', error);
+    throw new Error(`Failed to parse Excel file: ${error.message}`);
+  }
 }
 
 // Analyze column types and statistics

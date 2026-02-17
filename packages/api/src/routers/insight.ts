@@ -5,7 +5,7 @@ export const insightRouter = router({
   listByAnalysis: protectedProcedure
     .input(z.object({ analysisId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('insights')
         .select('*')
         .eq('analysis_id', input.analysisId)
@@ -18,7 +18,7 @@ export const insightRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const { data, error } = await ctx.supabase
+      const { data, error } = await ctx.adminSupabase
         .from('insights')
         .select(`
           *,

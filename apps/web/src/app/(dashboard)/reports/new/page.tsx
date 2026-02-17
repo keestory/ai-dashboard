@@ -1,63 +1,32 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react';
 import { Button, Card, Input } from '@repo/ui';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/contexts/auth-context';
-
-interface Analysis {
-  id: string;
-  name: string;
-  status: string;
-  created_at: string;
-}
+import { trpc } from '@/lib/trpc';
 
 type Template = 'summary' | 'detailed' | 'comparison' | 'custom';
 
 function NewReportContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const supabase = createClient();
 
   const preselectedAnalysisId = searchParams.get('analysisId');
 
-  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const { data: analysisData, isLoading: loading } = trpc.analysis.listForCurrentUser.useQuery({ limit: 50 });
+  const completedAnalyses = ((analysisData?.items || []) as any[]).filter(
+    (a: any) => a.status === 'completed'
+  );
+
+  const createReportMutation = trpc.report.create.useMutation();
+
   const [selectedAnalysisId, setSelectedAnalysisId] = useState(preselectedAnalysisId || '');
   const [reportName, setReportName] = useState('');
   const [template, setTemplate] = useState<Template>('summary');
-  const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    fetchAnalyses();
-  }, [user]);
-
-  const fetchAnalyses = async () => {
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from('analyses')
-      .select('id, name, status, created_at')
-      .eq('user_id', user.id)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setAnalyses(data);
-      if (preselectedAnalysisId) {
-        const selected = data.find(a => a.id === preselectedAnalysisId);
-        if (selected) {
-          setReportName(`${selected.name} 리포트`);
-        }
-      }
-    }
-    setLoading(false);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,19 +45,11 @@ function NewReportContent() {
     setError('');
 
     try {
-      // Create report record
-      const { data: report, error: createError } = await supabase
-        .from('reports')
-        .insert({
-          user_id: user?.id,
-          analysis_id: selectedAnalysisId,
-          name: reportName,
-          template: template,
-        })
-        .select()
-        .single();
-
-      if (createError) throw createError;
+      const report = await createReportMutation.mutateAsync({
+        analysisId: selectedAnalysisId,
+        name: reportName,
+        template: template,
+      });
 
       // Generate PDF (this would be handled by an API route)
       const response = await fetch('/api/reports/generate', {
@@ -98,7 +59,6 @@ function NewReportContent() {
       });
 
       if (!response.ok) {
-        // Still navigate even if PDF generation fails
         console.error('PDF generation failed');
       }
 
@@ -157,7 +117,7 @@ function NewReportContent() {
         {/* Select Analysis */}
         <Card>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">분석 선택</h2>
-          {analyses.length === 0 ? (
+          {completedAnalyses.length === 0 ? (
             <div className="text-center py-8">
               <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-600 mb-4">완료된 분석이 없습니다</p>
@@ -167,7 +127,7 @@ function NewReportContent() {
             </div>
           ) : (
             <div className="space-y-2">
-              {analyses.map((analysis) => (
+              {completedAnalyses.map((analysis: any) => (
                 <label
                   key={analysis.id}
                   className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${

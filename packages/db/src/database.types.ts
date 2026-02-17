@@ -14,10 +14,12 @@ export interface Database {
           id: string;
           email: string;
           name: string | null;
+          display_name: string | null;
           avatar_url: string | null;
           plan: 'free' | 'pro' | 'team' | 'business';
           analysis_count: number;
           storage_used: number;
+          current_workspace_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -25,10 +27,12 @@ export interface Database {
           id: string;
           email: string;
           name?: string | null;
+          display_name?: string | null;
           avatar_url?: string | null;
           plan?: 'free' | 'pro' | 'team' | 'business';
           analysis_count?: number;
           storage_used?: number;
+          current_workspace_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -36,10 +40,12 @@ export interface Database {
           id?: string;
           email?: string;
           name?: string | null;
+          display_name?: string | null;
           avatar_url?: string | null;
           plan?: 'free' | 'pro' | 'team' | 'business';
           analysis_count?: number;
           storage_used?: number;
+          current_workspace_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };

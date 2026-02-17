@@ -1,25 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
-  Download,
   Share2,
   RefreshCw,
   FileText,
   Loader2,
   AlertCircle,
+  Sparkles,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  BarChart3,
+  Lightbulb,
+  Target,
+  ChevronRight,
 } from 'lucide-react';
-import { Button, Card, KPICard, InsightCard, ActionCard } from '@repo/ui';
+import { Button, Card, InsightCard, ActionCard } from '@repo/ui';
 import { formatRelativeTime, formatBytes } from '@repo/utils';
-import { createClient } from '@/lib/supabase/client';
+import { trpc } from '@/lib/trpc';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   PieChart,
   Pie,
   XAxis,
@@ -31,7 +38,7 @@ import {
   Cell,
 } from 'recharts';
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
 
 interface Analysis {
   id: string;
@@ -41,7 +48,19 @@ interface Analysis {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   row_count: number | null;
   column_count: number | null;
-  summary: unknown;
+  summary: {
+    totalRows?: number;
+    totalColumns?: number;
+    numericColumns?: unknown[];
+    categoricalColumns?: unknown[];
+    businessKPIs?: {
+      label: string;
+      value: string;
+      change?: string;
+      changeType?: 'positive' | 'negative' | 'neutral';
+    }[];
+    executiveSummary?: string;
+  } | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -76,78 +95,41 @@ export default function AnalysisDetailPage() {
   const router = useRouter();
   const analysisId = params.id as string;
 
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [insights, setInsights] = useState<Insight[]>([]);
-  const [charts, setCharts] = useState<ChartData[]>([]);
-  const [actions, setActions] = useState<Action[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [actionStatuses, setActionStatuses] = useState<Record<string, string>>({});
 
-  const supabase = createClient();
-
-  useEffect(() => {
-    fetchAnalysis();
-
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel(`analysis-${analysisId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'analyses',
-          filter: `id=eq.${analysisId}`,
-        },
-        (payload) => {
-          setAnalysis(payload.new as Analysis);
-          if (payload.new.status === 'completed') {
-            fetchRelatedData();
-          }
+  const { data, isLoading, error, refetch } = trpc.analysis.getById.useQuery(
+    { id: analysisId },
+    {
+      refetchInterval: (query) => {
+        const status = (query.state.data as any)?.status;
+        if (status === 'pending' || status === 'processing') {
+          return 3000;
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [analysisId]);
-
-  const fetchAnalysis = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('analyses')
-        .select('*')
-        .eq('id', analysisId)
-        .single();
-
-      if (error) throw error;
-      const analysisData = data as Analysis;
-      setAnalysis(analysisData);
-
-      if (analysisData.status === 'completed') {
-        await fetchRelatedData();
+        return false;
       }
-    } catch (err) {
-      setError('분석을 불러오는데 실패했습니다.');
-      console.error(err);
-    } finally {
-      setLoading(false);
     }
-  };
+  );
 
-  const fetchRelatedData = async () => {
-    const [insightsRes, chartsRes, actionsRes] = await Promise.all([
-      supabase.from('insights').select('*').eq('analysis_id', analysisId),
-      supabase.from('charts').select('*').eq('analysis_id', analysisId).order('position'),
-      supabase.from('actions').select('*').eq('analysis_id', analysisId),
-    ]);
+  const analysisData = data as any;
+  const analysis: Analysis | null = analysisData ? {
+    id: analysisData.id,
+    name: analysisData.name,
+    file_name: analysisData.file_name,
+    file_size: analysisData.file_size,
+    status: analysisData.status,
+    row_count: analysisData.row_count,
+    column_count: analysisData.column_count,
+    summary: analysisData.summary,
+    created_at: analysisData.created_at,
+    completed_at: analysisData.completed_at,
+  } : null;
+  const insights = (analysisData?.insights || []) as Insight[];
+  const charts = (analysisData?.charts || []) as ChartData[];
+  const actions = (analysisData?.actions || []) as Action[];
 
-    if (insightsRes.data) setInsights(insightsRes.data as Insight[]);
-    if (chartsRes.data) setCharts(chartsRes.data as ChartData[]);
-    if (actionsRes.data) setActions(actionsRes.data as Action[]);
-  };
+  const businessKPIs = analysis?.summary?.businessKPIs || [];
+  const executiveSummary = analysis?.summary?.executiveSummary || '';
 
   const handleReanalyze = async () => {
     setReanalyzing(true);
@@ -156,11 +138,10 @@ export default function AnalysisDetailPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ analysisId }),
+        signal: AbortSignal.timeout(120000),
       });
-
       if (!response.ok) throw new Error('Failed to reanalyze');
-
-      await fetchAnalysis();
+      refetch();
     } catch (err) {
       console.error(err);
     } finally {
@@ -168,24 +149,16 @@ export default function AnalysisDetailPage() {
     }
   };
 
+  const updateActionMutation = trpc.action.updateStatus.useMutation({
+    onSuccess: () => refetch(),
+  });
+
   const handleActionStatusChange = async (actionId: string, status: string) => {
-    const { error } = await supabase
-      .from('actions')
-      .update({ status, completed_at: status === 'completed' ? new Date().toISOString() : null } as never)
-      .eq('id', actionId);
-
-    if (!error) {
-      setActions(actions.map(a =>
-        a.id === actionId ? { ...a, status: status as Action['status'] } : a
-      ));
-    }
+    setActionStatuses(prev => ({ ...prev, [actionId]: status }));
+    updateActionMutation.mutate({ id: actionId, status: status as any });
   };
 
-  const handleGenerateReport = async () => {
-    router.push(`/reports/new?analysisId=${analysisId}`);
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
@@ -197,11 +170,9 @@ export default function AnalysisDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
-        <p className="text-gray-600">{error || '분석을 찾을 수 없습니다.'}</p>
+        <p className="text-gray-600">{error?.message || '분석을 찾을 수 없습니다.'}</p>
         <Link href="/analysis">
-          <Button variant="secondary" className="mt-4">
-            목록으로 돌아가기
-          </Button>
+          <Button variant="secondary" className="mt-4">목록으로 돌아가기</Button>
         </Link>
       </div>
     );
@@ -218,7 +189,7 @@ export default function AnalysisDetailPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{analysis.name}</h1>
             <p className="text-gray-500">
-              {formatBytes(analysis.file_size)} | {formatRelativeTime(analysis.created_at)}
+              {formatBytes(analysis.file_size)} | {analysis.row_count?.toLocaleString()}행 | {formatRelativeTime(analysis.created_at)}
             </p>
           </div>
         </div>
@@ -239,7 +210,7 @@ export default function AnalysisDetailPage() {
           </Button>
           <Button
             leftIcon={<FileText className="h-4 w-4" />}
-            onClick={handleGenerateReport}
+            onClick={() => router.push(`/reports/new?analysisId=${analysisId}`)}
           >
             리포트 생성
           </Button>
@@ -248,15 +219,38 @@ export default function AnalysisDetailPage() {
 
       {/* Processing State */}
       {(analysis.status === 'pending' || analysis.status === 'processing') && (
-        <Card className="bg-blue-50 border-blue-200">
-          <div className="flex items-center gap-4">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            <div>
-              <p className="font-medium text-blue-900">분석 진행 중...</p>
-              <p className="text-sm text-blue-700">
-                잠시만 기다려주세요. 분석이 완료되면 자동으로 결과가 표시됩니다.
-              </p>
+        <Card>
+          <div className="text-center py-8">
+            <Loader2 className="h-12 w-12 animate-spin text-primary-600 mx-auto mb-6" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">AI가 데이터를 분석하고 있습니다</h2>
+            <p className="text-gray-500 mb-8">
+              비즈니스 인사이트와 액션 아이템을 생성하고 있습니다
+            </p>
+            <div className="max-w-md mx-auto">
+              <div className="flex items-center justify-between mb-2">
+                {['데이터 파싱', '통계 분석', 'AI 인사이트', '차트 생성'].map((step, index) => {
+                  const isActive = analysis.status === 'pending' ? index === 0 : index <= 2;
+                  const isCompleted = analysis.status === 'processing' && index < 1;
+                  return (
+                    <div key={step} className="flex flex-col items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                        isCompleted ? 'bg-emerald-500 text-white' : isActive ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {isCompleted ? '✓' : index + 1}
+                      </div>
+                      <span className={`text-xs mt-1 ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>{step}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden mt-4">
+                <div
+                  className="h-full bg-primary-600 rounded-full transition-all duration-500 animate-pulse"
+                  style={{ width: analysis.status === 'pending' ? '25%' : '66%' }}
+                />
+              </div>
             </div>
+            <p className="text-sm text-gray-400 mt-6">AI 분석에 10-30초 정도 소요됩니다</p>
           </div>
         </Card>
       )}
@@ -268,13 +262,9 @@ export default function AnalysisDetailPage() {
             <AlertCircle className="h-8 w-8 text-red-600" />
             <div className="flex-1">
               <p className="font-medium text-red-900">분석 실패</p>
-              <p className="text-sm text-red-700">
-                파일 분석 중 오류가 발생했습니다. 파일 형식을 확인하고 다시 시도해주세요.
-              </p>
+              <p className="text-sm text-red-700">파일 분석 중 오류가 발생했습니다. 파일 형식을 확인하고 다시 시도해주세요.</p>
             </div>
-            <Button onClick={handleReanalyze} loading={reanalyzing}>
-              다시 시도
-            </Button>
+            <Button onClick={handleReanalyze} loading={reanalyzing}>다시 시도</Button>
           </div>
         </Card>
       )}
@@ -282,62 +272,123 @@ export default function AnalysisDetailPage() {
       {/* Completed State */}
       {analysis.status === 'completed' && (
         <>
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard
-              title="총 행"
-              value={analysis.row_count?.toLocaleString() || '-'}
-            />
-            <KPICard
-              title="총 열"
-              value={analysis.column_count?.toString() || '-'}
-            />
-            <KPICard
-              title="인사이트"
-              value={insights.length}
-            />
-            <KPICard
-              title="액션 아이템"
-              value={actions.length}
-            />
-          </div>
+          {/* Executive Summary */}
+          {executiveSummary && (
+            <Card className="bg-gradient-to-r from-primary-50 to-blue-50 border-primary-200">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm flex-shrink-0">
+                  <Sparkles className="h-5 w-5 text-primary-600" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-gray-900 mb-1">AI 분석 요약</h2>
+                  <p className="text-gray-700 leading-relaxed">{executiveSummary}</p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Business KPIs */}
+          {businessKPIs.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {businessKPIs.map((kpi, index) => (
+                <Card key={index} className="relative overflow-hidden">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">{kpi.label}</p>
+                      <p className="text-2xl font-bold text-gray-900">{kpi.value}</p>
+                    </div>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      kpi.changeType === 'positive' ? 'bg-emerald-100' :
+                      kpi.changeType === 'negative' ? 'bg-red-100' : 'bg-gray-100'
+                    }`}>
+                      {kpi.changeType === 'positive' ? <TrendingUp className="h-4 w-4 text-emerald-600" /> :
+                       kpi.changeType === 'negative' ? <TrendingDown className="h-4 w-4 text-red-600" /> :
+                       <Minus className="h-4 w-4 text-gray-400" />}
+                    </div>
+                  </div>
+                  {kpi.change && (
+                    <p className={`text-xs mt-2 ${
+                      kpi.changeType === 'positive' ? 'text-emerald-600' :
+                      kpi.changeType === 'negative' ? 'text-red-600' : 'text-gray-500'
+                    }`}>
+                      {kpi.change}
+                    </p>
+                  )}
+                </Card>
+              ))}
+            </div>
+          ) : (
+            /* Fallback KPIs from raw data */
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <p className="text-sm text-gray-500 mb-1">데이터 규모</p>
+                <p className="text-2xl font-bold text-gray-900">{analysis.row_count?.toLocaleString()}<span className="text-sm text-gray-400 ml-1">행</span></p>
+              </Card>
+              <Card>
+                <p className="text-sm text-gray-500 mb-1">분석 항목</p>
+                <p className="text-2xl font-bold text-gray-900">{analysis.column_count}<span className="text-sm text-gray-400 ml-1">열</span></p>
+              </Card>
+              <Card>
+                <p className="text-sm text-gray-500 mb-1">인사이트</p>
+                <p className="text-2xl font-bold text-gray-900">{insights.length}<span className="text-sm text-gray-400 ml-1">개</span></p>
+              </Card>
+              <Card>
+                <p className="text-sm text-gray-500 mb-1">액션 아이템</p>
+                <p className="text-2xl font-bold text-gray-900">{actions.length}<span className="text-sm text-gray-400 ml-1">개</span></p>
+              </Card>
+            </div>
+          )}
 
           {/* Charts */}
-          {charts.length > 0 && (
+          {charts.filter(c => c.type !== 'kpi').length > 0 && (
             <div className="grid lg:grid-cols-2 gap-6">
               {charts
-                .filter(c => c.type === 'bar' || c.type === 'line')
+                .filter(c => c.type === 'bar' || c.type === 'line' || c.type === 'pie')
                 .map((chart) => (
                   <Card key={chart.id}>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                      {chart.title}
-                    </h3>
-                    <div className="h-64">
+                    <div className="flex items-center gap-2 mb-4">
+                      <BarChart3 className="h-4 w-4 text-gray-400" />
+                      <h3 className="text-lg font-semibold text-gray-900">{chart.title}</h3>
+                    </div>
+                    <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
-                        {chart.type === 'bar' ? (
-                          <BarChart data={chart.data as unknown[]}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey={chart.config.xKey || 'value'} />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar
+                        {chart.type === 'pie' ? (
+                          <PieChart>
+                            <Pie
+                              data={chart.data as unknown[]}
                               dataKey={chart.config.yKey || 'count'}
-                              fill="#3B82F6"
-                            />
-                          </BarChart>
-                        ) : (
+                              nameKey={chart.config.xKey || 'value'}
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={100}
+                              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            >
+                              {(chart.data as unknown[]).map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        ) : chart.type === 'line' ? (
                           <LineChart data={chart.data as unknown[]}>
                             <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey={chart.config.xKey || 'date'} />
-                            <YAxis />
+                            <XAxis dataKey={chart.config.xKey || 'date'} tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
                             <Tooltip />
-                            <Line
-                              type="monotone"
-                              dataKey={chart.config.yKey || 'value'}
-                              stroke="#3B82F6"
-                              strokeWidth={2}
-                            />
+                            <Line type="monotone" dataKey={chart.config.yKey || 'value'} stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
                           </LineChart>
+                        ) : (
+                          <BarChart data={chart.data as unknown[]}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey={chart.config.xKey || 'value'} tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <Tooltip />
+                            <Bar dataKey={chart.config.yKey || 'count'} radius={[4, 4, 0, 0]}>
+                              {(chart.data as unknown[]).map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Bar>
+                          </BarChart>
                         )}
                       </ResponsiveContainer>
                     </div>
@@ -349,9 +400,11 @@ export default function AnalysisDetailPage() {
           {/* Insights */}
           {insights.length > 0 && (
             <Card>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                AI 인사이트
-              </h2>
+              <div className="flex items-center gap-2 mb-4">
+                <Lightbulb className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900">AI 인사이트</h2>
+                <span className="text-sm text-gray-400 ml-auto">{insights.length}개 발견</span>
+              </div>
               <div className="grid md:grid-cols-2 gap-4">
                 {insights.map((insight) => (
                   <InsightCard
@@ -370,9 +423,13 @@ export default function AnalysisDetailPage() {
           {/* Actions */}
           {actions.length > 0 && (
             <Card>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                추천 액션
-              </h2>
+              <div className="flex items-center gap-2 mb-4">
+                <Target className="h-5 w-5 text-primary-600" />
+                <h2 className="text-lg font-semibold text-gray-900">추천 액션</h2>
+                <span className="text-sm text-gray-400 ml-auto">
+                  {actions.filter(a => (actionStatuses[a.id] || a.status) === 'completed').length}/{actions.length} 완료
+                </span>
+              </div>
               <div className="space-y-4">
                 {actions.map((action) => (
                   <ActionCard
@@ -380,15 +437,44 @@ export default function AnalysisDetailPage() {
                     title={action.title}
                     description={action.description}
                     priority={action.priority}
-                    status={action.status}
-                    onStatusChange={(status) =>
-                      handleActionStatusChange(action.id, status)
-                    }
+                    status={(actionStatuses[action.id] || action.status) as Action['status']}
+                    onStatusChange={(status) => handleActionStatusChange(action.id, status)}
                   />
                 ))}
               </div>
             </Card>
           )}
+
+          {/* Data Overview (collapsed) */}
+          <details className="group">
+            <summary className="cursor-pointer list-none">
+              <Card className="hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-gray-400" />
+                    <h3 className="font-medium text-gray-700">원본 데이터 통계</h3>
+                    <span className="text-sm text-gray-400">
+                      {analysis.row_count?.toLocaleString()}행 x {analysis.column_count}열
+                    </span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-90" />
+                </div>
+              </Card>
+            </summary>
+            <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(analysis.summary?.numericColumns as any[] || []).map((col: any) => (
+                <Card key={col.name} className="bg-gray-50">
+                  <p className="text-sm font-medium text-gray-700 mb-2">{col.name}</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
+                    <div>평균: <span className="text-gray-900 font-medium">{col.mean?.toLocaleString()}</span></div>
+                    <div>중앙값: <span className="text-gray-900 font-medium">{col.median?.toLocaleString()}</span></div>
+                    <div>최소: <span className="text-gray-900 font-medium">{col.min?.toLocaleString()}</span></div>
+                    <div>최대: <span className="text-gray-900 font-medium">{col.max?.toLocaleString()}</span></div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </details>
         </>
       )}
     </div>

@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { CheckCircle, Clock, AlertTriangle, XCircle, Filter, Loader2 } from 'lucide-react';
-import { Button, Card, ActionCard } from '@repo/ui';
+import { Button, Card } from '@repo/ui';
 import { formatRelativeTime } from '@repo/utils';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/contexts/auth-context';
+import { trpc } from '@/lib/trpc';
 
 interface Action {
   id: string;
@@ -25,66 +24,37 @@ type FilterStatus = 'all' | 'pending' | 'in_progress' | 'completed' | 'dismissed
 type FilterPriority = 'all' | 'urgent' | 'high' | 'medium' | 'low';
 
 export default function ActionsPage() {
-  const { user } = useAuth();
-  const supabase = createClient();
+  const { data: actionsData, isLoading: loading, refetch } = trpc.action.list.useQuery({});
+  const actions = (actionsData || []) as Action[];
 
-  const [actions, setActions] = useState<Action[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [filterPriority, setFilterPriority] = useState<FilterPriority>('all');
 
-  useEffect(() => {
-    fetchActions();
-  }, [user]);
-
-  const fetchActions = async () => {
-    if (!user) return;
-
-    const { data, error } = await supabase
-      .from('actions')
-      .select(`
-        *,
-        analyses!inner(id, name, user_id)
-      `)
-      .eq('analyses.user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setActions(data as Action[]);
-    }
-    setLoading(false);
-  };
-
-  const handleStatusChange = async (actionId: string, status: string) => {
-    const { error } = await supabase
-      .from('actions')
-      .update({
-        status,
-        completed_at: status === 'completed' ? new Date().toISOString() : null,
-      } as never)
-      .eq('id', actionId);
-
-    if (!error) {
-      setActions(actions.map(a =>
-        a.id === actionId
-          ? { ...a, status: status as Action['status'], completed_at: status === 'completed' ? new Date().toISOString() : null }
-          : a
-      ));
-    }
-  };
-
-  const filteredActions = actions.filter(action => {
-    if (filterStatus !== 'all' && action.status !== filterStatus) return false;
-    if (filterPriority !== 'all' && action.priority !== filterPriority) return false;
-    return true;
+  const updateStatusMutation = trpc.action.updateStatus.useMutation({
+    onSuccess: () => refetch(),
   });
 
-  const stats = {
+  const handleStatusChange = (actionId: string, status: string) => {
+    updateStatusMutation.mutate({
+      id: actionId,
+      status: status as 'pending' | 'in_progress' | 'completed' | 'dismissed',
+    });
+  };
+
+  const filteredActions = useMemo(() => {
+    return actions.filter(action => {
+      if (filterStatus !== 'all' && action.status !== filterStatus) return false;
+      if (filterPriority !== 'all' && action.priority !== filterPriority) return false;
+      return true;
+    });
+  }, [actions, filterStatus, filterPriority]);
+
+  const stats = useMemo(() => ({
     total: actions.length,
     pending: actions.filter(a => a.status === 'pending').length,
     inProgress: actions.filter(a => a.status === 'in_progress').length,
     completed: actions.filter(a => a.status === 'completed').length,
-  };
+  }), [actions]);
 
   if (loading) {
     return (

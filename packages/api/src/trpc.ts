@@ -5,6 +5,7 @@ import type { Tables } from '@repo/db';
 
 export interface Context {
   supabase: SupabaseClient;
+  adminSupabase: SupabaseClient;  // Admin client that bypasses RLS
   user: Tables<'profiles'> | null;
 }
 

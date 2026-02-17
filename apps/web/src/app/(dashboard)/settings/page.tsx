@@ -1,16 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { User, Bell, CreditCard, Shield, Loader2, Check } from 'lucide-react';
+import { User, Bell, CreditCard, Shield, Loader2, Check, Users } from 'lucide-react';
+import Link from 'next/link';
 import { Button, Card, Input } from '@repo/ui';
-import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/auth-context';
+import { trpc } from '@/lib/trpc';
 
-type Tab = 'profile' | 'notifications' | 'billing' | 'security';
+type Tab = 'profile' | 'workspace' | 'notifications' | 'billing' | 'security';
 
 export default function SettingsPage() {
   const { user, profile, updateProfile } = useAuth();
-  const supabase = createClient();
+  const updateSettingsMutation = trpc.auth.updateSettings.useMutation();
 
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [saving, setSaving] = useState(false);
@@ -27,6 +28,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'profile' as Tab, label: '프로필', icon: User },
+    { id: 'workspace' as Tab, label: '워크스페이스', icon: Users },
     { id: 'notifications' as Tab, label: '알림', icon: Bell },
     { id: 'billing' as Tab, label: '결제', icon: CreditCard },
     { id: 'security' as Tab, label: '보안', icon: Shield },
@@ -50,10 +52,8 @@ export default function SettingsPage() {
     setSaving(true);
     setSuccess(false);
 
-    // Save notification settings
-    const { error } = await supabase
-      .from('profiles')
-      .update({
+    try {
+      await updateSettingsMutation.mutateAsync({
         settings: {
           notifications: {
             email: emailNotifications,
@@ -61,12 +61,11 @@ export default function SettingsPage() {
             weeklyReport,
           },
         },
-      })
-      .eq('id', user?.id);
-
-    if (!error) {
+      });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      // silently fail
     }
 
     setSaving(false);
@@ -146,6 +145,23 @@ export default function SettingsPage() {
                     )}
                   </Button>
                 </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Workspace Tab */}
+          {activeTab === 'workspace' && (
+            <Card>
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">워크스페이스 설정</h2>
+              <div className="space-y-4">
+                <p className="text-gray-600">
+                  팀원을 초대하고 권한을 관리하세요. 워크스페이스를 통해 분석 결과를 공유할 수 있습니다.
+                </p>
+                <Link href="/settings/workspace">
+                  <Button leftIcon={<Users className="h-4 w-4" />}>
+                    워크스페이스 관리
+                  </Button>
+                </Link>
               </div>
             </Card>
           )}
