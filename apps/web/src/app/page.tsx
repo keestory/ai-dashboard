@@ -111,7 +111,7 @@ export default function HomePage() {
 
             {/* Trust line */}
             <p className="mt-6 text-sm text-gray-400">
-              카드 등록 없이 무료 시작 &middot; 월 3회 분석 무료
+              가입 30초 &middot; 설치 없음 &middot; 월 3회 무료
             </p>
           </div>
 
@@ -669,7 +669,7 @@ export default function HomePage() {
           <p className="text-xl text-blue-200 mb-10 max-w-2xl mx-auto">
             데이터 올리고 역할만 선택하면 끝.
             <br />
-            카드 등록 없이 지금 바로 시작하세요.
+            지금 바로 시작하세요.
           </p>
           <Link
             href="/signup"
@@ -679,7 +679,7 @@ export default function HomePage() {
             <ArrowRight className="ml-3 h-5 w-5 group-hover:translate-x-1 transition-transform" />
           </Link>
           <p className="mt-5 text-sm text-blue-300">
-            가입 30초 &middot; 카드 없음 &middot; 월 3회 무료
+            가입 30초 &middot; 설치 없음 &middot; 월 3회 무료
           </p>
         </div>
       </section>
