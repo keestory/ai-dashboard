@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { getPlanLimits } from '@/lib/plan-limits';
 import React from 'react';
 
 function getAdminSupabase() {
@@ -17,6 +18,22 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user's plan supports PDF export
+    const adminSupabaseForPlan = getAdminSupabase();
+    const { data: profile } = await adminSupabaseForPlan
+      .from('profiles')
+      .select('plan')
+      .eq('id', user.id)
+      .single();
+
+    const limits = getPlanLimits(profile?.plan || 'free');
+    if (!limits.pdfExport) {
+      return NextResponse.json(
+        { error: 'PDF 리포트 내보내기는 Pro 플랜 이상에서 사용할 수 있습니다.' },
+        { status: 403 }
+      );
     }
 
     const { reportId } = await request.json();
@@ -138,6 +155,22 @@ export async function GET(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check plan access
+    const adminSupabaseCheck = getAdminSupabase();
+    const { data: dlProfile } = await adminSupabaseCheck
+      .from('profiles')
+      .select('plan')
+      .eq('id', user.id)
+      .single();
+
+    const dlLimits = getPlanLimits(dlProfile?.plan || 'free');
+    if (!dlLimits.pdfExport) {
+      return NextResponse.json(
+        { error: 'PDF 리포트 내보내기는 Pro 플랜 이상에서 사용할 수 있습니다.' },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(request.url);

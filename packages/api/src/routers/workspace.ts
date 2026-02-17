@@ -167,6 +167,40 @@ export const workspaceRouter = router({
         });
       }
 
+      // Check team member limit based on owner's plan
+      const { data: ownerProfile } = await ctx.adminSupabase
+        .from('profiles')
+        .select('plan')
+        .eq('id', workspace.owner_id)
+        .single();
+
+      const ownerPlan = ownerProfile?.plan || 'free';
+
+      // Plan-based team member limits
+      const TEAM_LIMITS: Record<string, number> = {
+        free: 1,     // solo only
+        pro: 0,      // unlimited
+        team: 5,
+        business: 0, // unlimited
+      };
+
+      const maxMembers = TEAM_LIMITS[ownerPlan] || 1;
+
+      if (maxMembers > 0) {
+        const { count } = await ctx.adminSupabase
+          .from('workspace_members')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', input.workspaceId);
+
+        if ((count || 0) >= maxMembers) {
+          const planName = ownerPlan === 'free' ? 'Free' : ownerPlan === 'team' ? 'Team' : ownerPlan;
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: `${planName} 플랜에서는 최대 ${maxMembers}명까지 초대할 수 있습니다. 업그레이드하여 더 많은 팀원을 초대하세요.`,
+          });
+        }
+      }
+
       // Find user by email
       const { data: profile } = await ctx.adminSupabase
         .from('profiles')

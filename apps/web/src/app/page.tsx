@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {
   BarChart3,
   Upload,
-  Lightbulb,
   Zap,
   ArrowRight,
   Clock,
@@ -11,9 +10,6 @@ import {
   Brain,
   Target,
   CheckCircle,
-  Star,
-  ChevronRight,
-  Play,
   Sparkles,
   ArrowDown,
   LayoutDashboard,
@@ -103,7 +99,7 @@ export default function HomePage() {
                 className="inline-flex items-center gap-2 px-6 py-4 text-gray-600 font-medium text-lg hover:text-gray-900 transition-colors"
               >
                 <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-                  <Play className="h-4 w-4 ml-0.5" />
+                  <ArrowDown className="h-4 w-4" />
                 </div>
                 결과 미리보기
               </a>
@@ -214,10 +210,10 @@ export default function HomePage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
-              { number: '10,000+', label: '분석 완료', icon: FileSpreadsheet },
+              { number: 'Beta', label: '얼리어답터 모집 중', icon: Sparkles },
               { number: '30초', label: '평균 분석 시간', icon: Clock },
-              { number: '4.8/5', label: '사용자 만족도', icon: Star },
-              { number: '3시간', label: '주간 절약 시간', icon: TrendingUp },
+              { number: '6개', label: '지원 부서 유형', icon: Target },
+              { number: '3시간+', label: '분석 시간 절약', icon: TrendingUp },
             ].map((stat) => (
               <div key={stat.label} className="flex flex-col items-center">
                 <stat.icon className="h-5 w-5 text-blue-600 mb-2" />
@@ -254,9 +250,9 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="flex md:grid md:grid-cols-3 gap-6 overflow-x-auto snap-x snap-mandatory pb-4 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
             {/* Team Member */}
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow min-w-[300px] md:min-w-0 snap-center">
               <div className="bg-blue-600 px-6 py-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
@@ -294,7 +290,7 @@ export default function HomePage() {
             </div>
 
             {/* Team Lead */}
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow md:scale-[1.03] md:shadow-lg">
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow md:scale-[1.03] md:shadow-lg min-w-[300px] md:min-w-0 snap-center">
               <div className="bg-violet-600 px-6 py-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
@@ -332,7 +328,7 @@ export default function HomePage() {
             </div>
 
             {/* Executive */}
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow min-w-[300px] md:min-w-0 snap-center">
               <div className="bg-gray-900 px-6 py-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
@@ -371,9 +367,16 @@ export default function HomePage() {
           </div>
 
           <div className="text-center mt-12">
-            <p className="text-gray-500">
+            <p className="text-gray-500 mb-6">
               영업, 재무, HR, 운영... <strong className="text-gray-700">어떤 부서든</strong>, 어떤 직급이든.
             </p>
+            <Link
+              href="/signup"
+              className="inline-flex items-center px-6 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition-colors"
+            >
+              내 역할로 분석 받아보기
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
           </div>
         </div>
       </section>
@@ -611,6 +614,15 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+          <div className="text-center mt-12">
+            <Link
+              href="/signup"
+              className="inline-flex items-center px-6 py-3 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition-colors"
+            >
+              우리 팀 데이터로 시작하기
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -629,21 +641,27 @@ export default function HomePage() {
             <PricingCard
               name="Free"
               price="0"
+              pricePrefix=""
+              priceSuffix=""
               description="가볍게 시작하기"
               features={['월 3회 분석', '기본 차트', '5MB 파일', 'AI 인사이트 (기본)']}
               cta="무료 시작"
             />
             <PricingCard
               name="Pro"
-              price="19"
+              price="19,000"
+              pricePrefix="₩"
+              priceSuffix="/월"
               description="개인/팀 분석가"
               features={['무제한 분석', 'AI 심층 인사이트', '50MB 파일', 'PDF 리포트 내보내기', '우선 처리']}
               popular
-              cta="14일 무료 체험"
+              cta="Pro 시작하기"
             />
             <PricingCard
               name="Team"
-              price="49"
+              price="49,000"
+              pricePrefix="₩"
+              priceSuffix="/월"
               description="팀 협업"
               features={['Pro 전체 기능', '5명 팀 협업', '100MB 파일', '팀 대시보드', '우선 지원']}
               cta="팀 시작하기"
@@ -712,6 +730,8 @@ export default function HomePage() {
 function PricingCard({
   name,
   price,
+  pricePrefix,
+  priceSuffix,
   description,
   features,
   popular,
@@ -719,11 +739,14 @@ function PricingCard({
 }: {
   name: string;
   price: string;
+  pricePrefix?: string;
+  priceSuffix?: string;
   description: string;
   features: string[];
   popular?: boolean;
   cta: string;
 }) {
+  const isFree = price === '0';
   return (
     <div
       className={`relative bg-white rounded-2xl p-8 ${
@@ -740,8 +763,15 @@ function PricingCard({
       <h3 className="text-xl font-semibold text-gray-900">{name}</h3>
       <p className="text-sm text-gray-500 mt-1">{description}</p>
       <div className="mt-5 flex items-baseline">
-        <span className="text-4xl font-bold text-gray-900">${price}</span>
-        <span className="text-gray-500 ml-1">/월</span>
+        {isFree ? (
+          <span className="text-4xl font-bold text-gray-900">무료</span>
+        ) : (
+          <>
+            <span className="text-lg font-medium text-gray-500">{pricePrefix}</span>
+            <span className="text-4xl font-bold text-gray-900">{price}</span>
+            <span className="text-gray-500 ml-1">{priceSuffix}</span>
+          </>
+        )}
       </div>
       <ul className="mt-6 space-y-3">
         {features.map((feature) => (

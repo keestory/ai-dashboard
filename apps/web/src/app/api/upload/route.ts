@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
-
-// Plan-based file size limits
-const PLAN_LIMITS: Record<string, number> = {
-  free: 5 * 1024 * 1024,       // 5MB
-  pro: 50 * 1024 * 1024,       // 50MB
-  team: 100 * 1024 * 1024,     // 100MB
-  business: 500 * 1024 * 1024, // 500MB
-};
+import { getPlanLimits } from '@/lib/plan-limits';
 
 const ALLOWED_TYPES = ['csv', 'xls', 'xlsx'];
 const ALLOWED_MIME_TYPES = [
@@ -34,7 +27,26 @@ export async function POST(request: NextRequest) {
       .single();
 
     const plan = profile?.plan || 'free';
-    const maxSize = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+    const limits = getPlanLimits(plan);
+
+    // Check monthly analysis count for plans with limits
+    if (limits.monthlyAnalyses > 0) {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+      const { count } = await adminClient
+        .from('analyses')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('created_at', startOfMonth);
+
+      if ((count || 0) >= limits.monthlyAnalyses) {
+        return NextResponse.json(
+          { error: `월 ${limits.monthlyAnalyses}회 무료 분석 한도를 초과했습니다. Pro 플랜으로 업그레이드하시면 무제한으로 분석할 수 있습니다.` },
+          { status: 429 }
+        );
+      }
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -58,9 +70,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file size
-    if (file.size > maxSize) {
+    if (file.size > limits.maxFileSize) {
       return NextResponse.json(
-        { error: `File too large. Max size: ${maxSize / 1024 / 1024}MB` },
+        { error: `파일이 너무 큽니다. 최대 크기: ${limits.maxFileSize / 1024 / 1024}MB` },
         { status: 400 }
       );
     }

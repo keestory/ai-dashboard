@@ -72,9 +72,10 @@ export default function SettingsPage() {
   };
 
   const planLabels: Record<string, string> = {
-    free: '무료',
-    pro: '프로',
-    enterprise: '엔터프라이즈',
+    free: 'Free',
+    pro: 'Pro',
+    team: 'Team',
+    business: 'Business',
   };
 
   return (
@@ -229,10 +230,12 @@ export default function SettingsPage() {
                     </p>
                     <p className="text-sm text-gray-500">
                       {profile?.plan === 'free'
-                        ? '월 10회 분석, 5MB 파일 제한'
+                        ? '월 3회 분석, 5MB 파일 제한'
                         : profile?.plan === 'pro'
-                        ? '무제한 분석, 50MB 파일 제한'
-                        : '무제한 분석, 100MB 파일 제한, 팀 기능'}
+                        ? '무제한 분석, 50MB 파일, PDF 리포트'
+                        : profile?.plan === 'team'
+                        ? '무제한 분석, 100MB 파일, 5명 팀 협업'
+                        : '무제한 분석, 500MB 파일, 무제한 팀'}
                     </p>
                   </div>
                   {profile?.plan === 'free' && (
@@ -248,14 +251,14 @@ export default function SettingsPage() {
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">이번 달 분석 횟수</span>
                       <span className="font-medium">
-                        {profile?.usage_count || 0} / {profile?.plan === 'free' ? '10' : '무제한'}
+                        {profile?.analysis_count || 0} / {profile?.plan === 'free' ? '3' : '무제한'}
                       </span>
                     </div>
                     {profile?.plan === 'free' && (
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div
                           className="bg-primary-600 h-2 rounded-full"
-                          style={{ width: `${Math.min(((profile?.usage_count || 0) / 10) * 100, 100)}%` }}
+                          style={{ width: `${Math.min(((profile?.analysis_count || 0) / 3) * 100, 100)}%` }}
                         />
                       </div>
                     )}
@@ -264,7 +267,7 @@ export default function SettingsPage() {
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-gray-600">저장 용량</span>
                       <span className="font-medium">
-                        {formatBytes(profile?.storage_used || 0)} / {profile?.plan === 'free' ? '100MB' : profile?.plan === 'pro' ? '10GB' : '100GB'}
+                        {formatBytes(profile?.storage_used || 0)} / {profile?.plan === 'free' ? '100MB' : profile?.plan === 'pro' ? '10GB' : profile?.plan === 'team' ? '100GB' : '500GB'}
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -391,7 +394,8 @@ function getStoragePercent(used: number, plan: string): number {
   const limits: Record<string, number> = {
     free: 100 * 1024 * 1024,
     pro: 10 * 1024 * 1024 * 1024,
-    enterprise: 100 * 1024 * 1024 * 1024,
+    team: 100 * 1024 * 1024 * 1024,
+    business: 500 * 1024 * 1024 * 1024,
   };
-  return (used / limits[plan]) * 100;
+  return (used / (limits[plan] || limits.free)) * 100;
 }
