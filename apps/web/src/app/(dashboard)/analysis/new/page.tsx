@@ -572,7 +572,7 @@ export default function NewAnalysisPage() {
                   </li>
                   <li className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                    PDF 리포트 내보내기
+                    분석 결과 공유 링크
                   </li>
                   <li className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />

@@ -463,7 +463,7 @@ export default function HomePage() {
                 </li>
               </ul>
               <div className="mt-6 pt-4 border-t border-blue-200">
-                <p className="text-xs text-blue-600 font-medium">결과물: 대시보드 + PDF 리포트 + 액션 플랜</p>
+                <p className="text-xs text-blue-600 font-medium">결과물: 대시보드 + 공유 링크 + 액션 플랜</p>
               </div>
             </div>
           </div>
@@ -752,7 +752,7 @@ export default function HomePage() {
               pricePrefix="₩"
               priceSuffix="/월"
               description="개인/팀 분석가"
-              features={['무제한 분석', 'AI 심층 인사이트', '50MB 파일', 'PDF 리포트 내보내기', '우선 처리']}
+              features={['무제한 분석', 'AI 심층 인사이트', '50MB 파일', '분석 결과 공유 링크', '우선 처리']}
               popular
               cta="Pro 시작하기"
             />

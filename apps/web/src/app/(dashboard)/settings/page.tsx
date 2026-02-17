@@ -232,7 +232,7 @@ export default function SettingsPage() {
                       {profile?.plan === 'free'
                         ? '월 3회 분석, 5MB 파일 제한'
                         : profile?.plan === 'pro'
-                        ? '무제한 분석, 50MB 파일, PDF 리포트'
+                        ? '무제한 분석, 50MB 파일, 공유 링크'
                         : profile?.plan === 'team'
                         ? '무제한 분석, 100MB 파일, 5명 팀 협업'
                         : '무제한 분석, 500MB 파일, 무제한 팀'}
