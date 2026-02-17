@@ -116,6 +116,14 @@ export default function AnalysisDetailPage() {
 
   const [reanalyzing, setReanalyzing] = useState(false);
   const [actionStatuses, setActionStatuses] = useState<Record<string, string>>({});
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/share/${analysisId}`;
+    await navigator.clipboard.writeText(shareUrl);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  };
 
   const { data, isLoading, error, refetch } = trpc.analysis.getById.useQuery(
     { id: analysisId },
@@ -251,8 +259,9 @@ export default function AnalysisDetailPage() {
           <Button
             variant="secondary"
             leftIcon={<Share2 className="h-4 w-4" />}
+            onClick={handleShare}
           >
-            공유
+            {shareCopied ? '링크 복사됨!' : '공유'}
           </Button>
           <Button
             leftIcon={<FileText className="h-4 w-4" />}
