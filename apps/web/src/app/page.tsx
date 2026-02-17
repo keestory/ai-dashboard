@@ -381,6 +381,105 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Before / After Comparison */}
+      <section className="py-20 sm:py-28 bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
+              Excel 3시간 vs AI 30초
+            </h2>
+            <p className="mt-4 text-lg text-gray-500">
+              같은 데이터, 완전히 다른 속도와 깊이
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Before */}
+            <div className="relative bg-gray-50 rounded-2xl p-8 border border-gray-200">
+              <div className="absolute -top-3 left-6 px-3 py-1 bg-gray-200 text-gray-600 text-xs font-bold rounded-full uppercase tracking-wider">
+                Before
+              </div>
+              <div className="flex items-center gap-3 mb-6 mt-2">
+                <div className="w-10 h-10 bg-gray-200 rounded-xl flex items-center justify-center">
+                  <FileSpreadsheet className="h-5 w-5 text-gray-500" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-700">수동 Excel 분석</p>
+                  <p className="text-sm text-gray-400">평균 소요시간: 3시간+</p>
+                </div>
+              </div>
+              <ul className="space-y-3 text-sm text-gray-500">
+                <li className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 mt-0.5 text-gray-400 flex-shrink-0" />
+                  피벗 테이블, 수식 작성에 1시간
+                </li>
+                <li className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 mt-0.5 text-gray-400 flex-shrink-0" />
+                  차트 만들고 포맷 정리에 30분
+                </li>
+                <li className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 mt-0.5 text-gray-400 flex-shrink-0" />
+                  인사이트 해석 & 보고서 작성에 1시간
+                </li>
+                <li className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 mt-0.5 text-gray-400 flex-shrink-0" />
+                  분석 관점이 분석자 역량에 따라 달라짐
+                </li>
+              </ul>
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <p className="text-xs text-gray-400">결과물: 정적 스프레드시트</p>
+              </div>
+            </div>
+
+            {/* After */}
+            <div className="relative bg-gradient-to-br from-blue-50 to-violet-50 rounded-2xl p-8 border border-blue-200 shadow-sm">
+              <div className="absolute -top-3 left-6 px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded-full uppercase tracking-wider">
+                After
+              </div>
+              <div className="flex items-center gap-3 mb-6 mt-2">
+                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">InsightFlow AI 분석</p>
+                  <p className="text-sm text-blue-600 font-medium">소요시간: 30초</p>
+                </div>
+              </div>
+              <ul className="space-y-3 text-sm text-gray-700">
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 mt-0.5 text-emerald-500 flex-shrink-0" />
+                  파일 업로드 즉시 자동 통계 분석
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 mt-0.5 text-emerald-500 flex-shrink-0" />
+                  비즈니스 KPI + 인터랙티브 차트 자동 생성
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 mt-0.5 text-emerald-500 flex-shrink-0" />
+                  역할별 맞춤 인사이트 & 액션 아이템
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle className="h-4 w-4 mt-0.5 text-emerald-500 flex-shrink-0" />
+                  팀원·팀장·임원 관점 선택으로 일관된 분석
+                </li>
+              </ul>
+              <div className="mt-6 pt-4 border-t border-blue-200">
+                <p className="text-xs text-blue-600 font-medium">결과물: 대시보드 + PDF 리포트 + 액션 플랜</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center mt-10">
+            <Link
+              href="/signup"
+              className="inline-flex items-center px-8 py-3.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/25"
+            >
+              30초 분석 체험하기
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* How it works */}
       <section id="how-it-works" className="py-20 sm:py-28 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

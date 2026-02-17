@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const workspaceId = formData.get('workspaceId') as string | null;
+    const role = (formData.get('role') as string) || 'team_member';
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -99,12 +100,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Create analysis record (use admin client to bypass RLS)
+    const roleLabels: Record<string, string> = {
+      team_member: '팀원',
+      team_lead: '팀장',
+      executive: '임원',
+    };
     const { data: analysis, error: analysisError } = await adminClient
       .from('analyses')
       .insert({
         workspace_id: workspaceId,
         user_id: user.id,
         name: file.name,
+        description: `role:${role}|${roleLabels[role] || '팀원'} 관점 분석`,
         file_name: file.name,
         file_url: uploadData.path,
         file_size: file.size,

@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { analysisId } = await request.json();
+    const { analysisId, role: requestRole } = await request.json();
 
     if (!analysisId) {
       return NextResponse.json({ error: 'Analysis ID required' }, { status: 400 });
@@ -120,13 +120,17 @@ export async function POST(request: NextRequest) {
     const columns = analyzeColumns(parsedData);
     const summary = calculateSummary(parsedData, columns);
 
+    // Determine role from request or analysis description
+    const descriptionRole = analysis.description?.match(/^role:(\w+)\|/)?.[1];
+    const role = requestRole || descriptionRole || 'team_member';
+
     // Generate AI analysis (single comprehensive call)
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     let aiResult: AIAnalysisResult | null = null;
 
     if (anthropicKey) {
       const anthropic = new Anthropic({ apiKey: anthropicKey });
-      aiResult = await generateComprehensiveAnalysis(anthropic, parsedData, columns, summary);
+      aiResult = await generateComprehensiveAnalysis(anthropic, parsedData, columns, summary, role);
     }
 
     // Build charts: AI-suggested + fallback auto-generated
@@ -448,16 +452,47 @@ async function generateComprehensiveAnalysis(
   anthropic: Anthropic,
   data: Record<string, unknown>[],
   columns: ColumnInfo[],
-  summary: Summary
+  summary: Summary,
+  role: string = 'team_member'
 ): Promise<AIAnalysisResult | null> {
-  const systemPrompt = `You are a senior business data analyst and consultant. You analyze data and produce actionable business intelligence.
+  const rolePrompts: Record<string, string> = {
+    team_member: `You are a practical data analyst helping a team member optimize their daily work.
 
-Your analysis should be like a management consultant's deliverable:
-1. Start with an executive summary (2-3 sentences) that a CEO can understand
-2. Identify the 4 most important business KPIs from the data
-3. Generate insights ordered by business impact (not just statistical findings)
-4. Recommend specific, measurable actions with expected outcomes
-5. Suggest the most informative chart visualizations
+Your analysis should focus on OPERATIONAL insights that a team member can act on immediately:
+1. Executive summary: What does this data mean for day-to-day work? (2-3 sentences)
+2. KPIs: Focus on operational metrics (처리 건수, 완료율, 소요 시간, 오류율 등)
+3. Insights: Find patterns, anomalies, and efficiency opportunities in the data
+4. Actions: Suggest specific tasks the team member can do THIS WEEK to improve results
+5. Charts: Show trends and distributions that reveal work patterns
+
+Perspective: 실무자 관점 - "내 업무에 바로 활용할 수 있는 것"`,
+
+    team_lead: `You are a team management consultant helping a team leader optimize team performance.
+
+Your analysis should focus on TEAM PERFORMANCE and RESOURCE MANAGEMENT:
+1. Executive summary: Team performance overview and key concerns (2-3 sentences)
+2. KPIs: Focus on team-level metrics (팀 생산성, 목표 달성률, 리소스 활용률, 병목 구간)
+3. Insights: Compare across team members/segments, identify top/bottom performers, find bottlenecks
+4. Actions: Suggest team restructuring, resource reallocation, process improvements
+5. Charts: Show comparisons, rankings, and progress tracking
+
+Perspective: 팀장 관점 - "팀 성과를 어떻게 끌어올릴 것인가"`,
+
+    executive: `You are a senior management consultant presenting to C-level executives.
+
+Your analysis should focus on STRATEGIC BUSINESS IMPLICATIONS:
+1. Executive summary: Business impact and strategic implications (2-3 sentences, board-ready)
+2. KPIs: Focus on business-level metrics (매출, 수익률, 시장점유율, 고객 가치, ROI)
+3. Insights: Identify market trends, competitive advantages, strategic risks and opportunities
+4. Actions: Recommend strategic decisions with projected ROI and timeline
+5. Charts: Show big-picture trends, forecasts, and executive dashboards
+
+Perspective: 임원 관점 - "비즈니스 전략적으로 무엇을 결정해야 하는가"`,
+  };
+
+  const roleContext = rolePrompts[role] || rolePrompts.team_member;
+
+  const systemPrompt = `${roleContext}
 
 Guidelines:
 - All text content must be in Korean

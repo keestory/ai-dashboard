@@ -18,6 +18,9 @@ import {
   Lightbulb,
   Target,
   ChevronRight,
+  Users,
+  UserCog,
+  Crown,
 } from 'lucide-react';
 import { Button, Card, InsightCard, ActionCard } from '@repo/ui';
 import { formatRelativeTime, formatBytes } from '@repo/utils';
@@ -40,9 +43,16 @@ import {
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
 
+const ROLE_INFO: Record<string, { label: string; icon: typeof Users; color: string }> = {
+  team_member: { label: '팀원 관점', icon: Users, color: 'blue' },
+  team_lead: { label: '팀장 관점', icon: UserCog, color: 'emerald' },
+  executive: { label: '임원 관점', icon: Crown, color: 'purple' },
+};
+
 interface Analysis {
   id: string;
   name: string;
+  description: string | null;
   file_name: string;
   file_size: number;
   status: 'pending' | 'processing' | 'completed' | 'failed';
@@ -115,6 +125,7 @@ export default function AnalysisDetailPage() {
   const analysis: Analysis | null = analysisData ? {
     id: analysisData.id,
     name: analysisData.name,
+    description: analysisData.description,
     file_name: analysisData.file_name,
     file_size: analysisData.file_size,
     status: analysisData.status,
@@ -124,6 +135,10 @@ export default function AnalysisDetailPage() {
     created_at: analysisData.created_at,
     completed_at: analysisData.completed_at,
   } : null;
+
+  // Extract role from description
+  const analysisRole = analysis?.description?.match(/^role:(\w+)\|/)?.[1] || null;
+  const roleInfo = analysisRole ? ROLE_INFO[analysisRole] : null;
   const insights = (analysisData?.insights || []) as Insight[];
   const charts = (analysisData?.charts || []) as ChartData[];
   const actions = (analysisData?.actions || []) as Action[];
@@ -187,7 +202,22 @@ export default function AnalysisDetailPage() {
             <ArrowLeft className="h-5 w-5 text-gray-500" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{analysis.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-gray-900">{analysis.name}</h1>
+              {roleInfo && (() => {
+                const RoleIcon = roleInfo.icon;
+                return (
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                    roleInfo.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                    roleInfo.color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                    'bg-purple-100 text-purple-700'
+                  }`}>
+                    <RoleIcon className="h-3 w-3" />
+                    {roleInfo.label}
+                  </span>
+                );
+              })()}
+            </div>
             <p className="text-gray-500">
               {formatBytes(analysis.file_size)} | {analysis.row_count?.toLocaleString()}행 | {formatRelativeTime(analysis.created_at)}
             </p>
