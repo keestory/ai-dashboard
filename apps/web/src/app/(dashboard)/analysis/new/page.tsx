@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileSpreadsheet, AlertCircle, RefreshCw, Loader2, Users, UserCog, Crown, Check, Zap, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, AlertCircle, RefreshCw, Loader2, Users, UserCog, Crown, Check, Zap, CheckCircle2, Search, ChevronDown, Building2, X } from 'lucide-react';
 import { Button, Card, FileUpload, Input } from '@repo/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { trpc } from '@/lib/trpc';
@@ -37,6 +37,74 @@ const ROLES = [
 
 type RoleType = typeof ROLES[number]['id'];
 
+interface Department {
+  id: string;
+  label: string;
+  group: string;
+  groupId: string;
+}
+
+const DEPARTMENT_GROUPS = [
+  {
+    groupId: 'revenue',
+    group: '매출/성장',
+    departments: [
+      { id: 'sales', label: '영업' },
+      { id: 'marketing', label: '마케팅' },
+      { id: 'biz_dev', label: '사업개발' },
+      { id: 'pr', label: 'PR' },
+    ],
+  },
+  {
+    groupId: 'strategy',
+    group: '전략/재무',
+    departments: [
+      { id: 'strategy', label: '전략' },
+      { id: 'finance', label: '재무' },
+      { id: 'accounting', label: '회계' },
+      { id: 'legal', label: '법무' },
+    ],
+  },
+  {
+    groupId: 'product',
+    group: '제품/기술',
+    departments: [
+      { id: 'service_planning', label: '서비스 기획' },
+      { id: 'development', label: '개발' },
+      { id: 'product_design', label: '프로덕트 디자인' },
+    ],
+  },
+  {
+    groupId: 'content',
+    group: '콘텐츠/크리에이티브',
+    departments: [
+      { id: 'content_planning', label: '콘텐츠 기획' },
+      { id: 'content_design', label: '콘텐츠 디자인' },
+    ],
+  },
+  {
+    groupId: 'operations',
+    group: '운영/CS',
+    departments: [
+      { id: 'operations', label: '운영' },
+      { id: 'logistics', label: '물류' },
+      { id: 'cs', label: 'CS(CX)' },
+    ],
+  },
+  {
+    groupId: 'hr',
+    group: '인사/조직',
+    departments: [
+      { id: 'hr', label: '인사' },
+      { id: 'other', label: '기타' },
+    ],
+  },
+];
+
+const ALL_DEPARTMENTS: Department[] = DEPARTMENT_GROUPS.flatMap(g =>
+  g.departments.map(d => ({ ...d, group: g.group, groupId: g.groupId }))
+);
+
 export default function NewAnalysisPage() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -44,10 +112,39 @@ export default function NewAnalysisPage() {
   const [file, setFile] = useState<File | null>(null);
   const [analysisName, setAnalysisName] = useState('');
   const [selectedRole, setSelectedRole] = useState<RoleType>('team_member');
+  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
+  const [deptSearch, setDeptSearch] = useState('');
+  const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
+  const deptRef = useRef<HTMLDivElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [showUpgradeNudge, setShowUpgradeNudge] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (deptRef.current && !deptRef.current.contains(e.target as Node)) {
+        setDeptDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredDepartments = deptSearch
+    ? ALL_DEPARTMENTS.filter(d =>
+        d.label.toLowerCase().includes(deptSearch.toLowerCase()) ||
+        d.group.toLowerCase().includes(deptSearch.toLowerCase())
+      )
+    : ALL_DEPARTMENTS;
+
+  const filteredGroups = DEPARTMENT_GROUPS.map(g => ({
+    ...g,
+    departments: g.departments.filter(d =>
+      filteredDepartments.some(fd => fd.id === d.id)
+    ),
+  })).filter(g => g.departments.length > 0);
 
   // tRPC로 현재 워크스페이스 가져오기 (없으면 자동 생성)
   const { data: workspace, isLoading: workspaceLoading } = trpc.workspace.getCurrent.useQuery();
@@ -87,6 +184,10 @@ export default function NewAnalysisPage() {
       formData.append('file', file);
       formData.append('workspaceId', workspaceId);
       formData.append('role', selectedRole);
+      if (selectedDepartment) {
+        formData.append('department', selectedDepartment.id);
+        formData.append('departmentGroup', selectedDepartment.groupId);
+      }
 
       // Use XMLHttpRequest for upload progress tracking
       const uploadResult = await new Promise<{ analysis: { id: string } }>((resolve, reject) => {
@@ -124,7 +225,12 @@ export default function NewAnalysisPage() {
       const analyzeResponse = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysisId: uploadResult.analysis.id, role: selectedRole }),
+        body: JSON.stringify({
+          analysisId: uploadResult.analysis.id,
+          role: selectedRole,
+          department: selectedDepartment?.id,
+          departmentGroup: selectedDepartment?.groupId,
+        }),
         signal: AbortSignal.timeout(120000), // 2 min timeout
       });
 
@@ -260,6 +366,104 @@ export default function NewAnalysisPage() {
               <p className="text-xs text-gray-400 mt-2">
                 {ROLES.find(r => r.id === selectedRole)?.detail}
               </p>
+            </div>
+          )}
+
+          {/* Department Selection */}
+          {file && (
+            <div ref={deptRef} className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                소속 부서
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                부서에 맞는 업계 용어와 KPI로 분석합니다
+              </p>
+              <div
+                className={`flex items-center border rounded-xl px-3 py-2.5 cursor-pointer transition-colors ${
+                  deptDropdownOpen ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-300 hover:border-gray-400'
+                }`}
+                onClick={() => setDeptDropdownOpen(true)}
+              >
+                <Building2 className="h-4 w-4 text-gray-400 mr-2 flex-shrink-0" />
+                {selectedDepartment ? (
+                  <div className="flex items-center flex-1 min-w-0">
+                    <span className="text-sm text-gray-900 truncate">{selectedDepartment.label}</span>
+                    <span className="text-xs text-gray-400 ml-1.5">({selectedDepartment.group})</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setSelectedDepartment(null); setDeptSearch(''); }}
+                      className="ml-auto p-0.5 hover:bg-gray-100 rounded"
+                    >
+                      <X className="h-3.5 w-3.5 text-gray-400" />
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="부서를 검색하세요..."
+                    value={deptSearch}
+                    onChange={(e) => { setDeptSearch(e.target.value); setDeptDropdownOpen(true); }}
+                    className="flex-1 text-sm outline-none bg-transparent placeholder:text-gray-400"
+                    onFocus={() => setDeptDropdownOpen(true)}
+                  />
+                )}
+                <ChevronDown className={`h-4 w-4 text-gray-400 ml-1 flex-shrink-0 transition-transform ${deptDropdownOpen ? 'rotate-180' : ''}`} />
+              </div>
+
+              {/* Dropdown */}
+              {deptDropdownOpen && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                  {selectedDepartment && (
+                    <div className="px-3 py-2 border-b">
+                      <input
+                        type="text"
+                        placeholder="부서 검색..."
+                        value={deptSearch}
+                        onChange={(e) => setDeptSearch(e.target.value)}
+                        className="w-full text-sm outline-none placeholder:text-gray-400"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                  {filteredGroups.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-gray-400">
+                      검색 결과가 없습니다
+                    </div>
+                  ) : (
+                    filteredGroups.map((group) => (
+                      <div key={group.groupId}>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 sticky top-0">
+                          {group.group}
+                        </div>
+                        {group.departments.map((dept) => {
+                          const isSelected = selectedDepartment?.id === dept.id;
+                          return (
+                            <button
+                              key={dept.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedDepartment(ALL_DEPARTMENTS.find(d => d.id === dept.id)!);
+                                setDeptDropdownOpen(false);
+                                setDeptSearch('');
+                              }}
+                              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                                isSelected
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                {dept.label}
+                                {isSelected && <Check className="h-3.5 w-3.5 text-blue-500 ml-auto" />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           )}
 

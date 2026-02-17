@@ -49,6 +49,15 @@ const ROLE_INFO: Record<string, { label: string; icon: typeof Users; color: stri
   executive: { label: '임원 관점', icon: Crown, color: 'purple' },
 };
 
+const DEPT_LABELS: Record<string, string> = {
+  sales: '영업', marketing: '마케팅', biz_dev: '사업개발', pr: 'PR',
+  strategy: '전략', finance: '재무', accounting: '회계', legal: '법무',
+  service_planning: '서비스 기획', development: '개발', product_design: '프로덕트 디자인',
+  content_planning: '콘텐츠 기획', content_design: '콘텐츠 디자인',
+  operations: '운영', logistics: '물류', cs: 'CS(CX)',
+  hr: '인사', other: '기타',
+};
+
 interface Analysis {
   id: string;
   name: string;
@@ -136,9 +145,11 @@ export default function AnalysisDetailPage() {
     completed_at: analysisData.completed_at,
   } : null;
 
-  // Extract role from description
-  const analysisRole = analysis?.description?.match(/^role:(\w+)\|/)?.[1] || null;
+  // Extract role and department from description
+  const analysisRole = analysis?.description?.match(/role:(\w+)\|/)?.[1] || null;
   const roleInfo = analysisRole ? ROLE_INFO[analysisRole] : null;
+  const analysisDept = analysis?.description?.match(/dept:(\w+)\|/)?.[1] || null;
+  const deptLabel = analysisDept ? DEPT_LABELS[analysisDept] : null;
   const insights = (analysisData?.insights || []) as Insight[];
   const charts = (analysisData?.charts || []) as ChartData[];
   const actions = (analysisData?.actions || []) as Action[];
@@ -217,6 +228,11 @@ export default function AnalysisDetailPage() {
                   </span>
                 );
               })()}
+              {deptLabel && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                  {deptLabel}
+                </span>
+              )}
             </div>
             <p className="text-gray-500">
               {formatBytes(analysis.file_size)} | {analysis.row_count?.toLocaleString()}행 | {formatRelativeTime(analysis.created_at)}

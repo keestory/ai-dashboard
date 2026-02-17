@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { analysisId, role: requestRole } = await request.json();
+    const { analysisId, role: requestRole, department: requestDept, departmentGroup: requestDeptGroup } = await request.json();
 
     if (!analysisId) {
       return NextResponse.json({ error: 'Analysis ID required' }, { status: 400 });
@@ -120,9 +120,11 @@ export async function POST(request: NextRequest) {
     const columns = analyzeColumns(parsedData);
     const summary = calculateSummary(parsedData, columns);
 
-    // Determine role from request or analysis description
-    const descriptionRole = analysis.description?.match(/^role:(\w+)\|/)?.[1];
+    // Determine role and department from request or analysis description
+    const descriptionRole = analysis.description?.match(/role:(\w+)\|/)?.[1];
+    const descriptionDeptGroup = analysis.description?.match(/deptGroup:(\w+)\|/)?.[1];
     const role = requestRole || descriptionRole || 'team_member';
+    const deptGroup = requestDeptGroup || descriptionDeptGroup || '';
 
     // Generate AI analysis (single comprehensive call)
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     if (anthropicKey) {
       const anthropic = new Anthropic({ apiKey: anthropicKey });
-      aiResult = await generateComprehensiveAnalysis(anthropic, parsedData, columns, summary, role);
+      aiResult = await generateComprehensiveAnalysis(anthropic, parsedData, columns, summary, role, deptGroup);
     }
 
     // Build charts: AI-suggested + fallback auto-generated
@@ -453,7 +455,8 @@ async function generateComprehensiveAnalysis(
   data: Record<string, unknown>[],
   columns: ColumnInfo[],
   summary: Summary,
-  role: string = 'team_member'
+  role: string = 'team_member',
+  deptGroup: string = ''
 ): Promise<AIAnalysisResult | null> {
   const rolePrompts: Record<string, string> = {
     team_member: `You are a practical data analyst helping a team member optimize their daily work.
@@ -492,7 +495,30 @@ Perspective: 임원 관점 - "비즈니스 전략적으로 무엇을 결정해�
 
   const roleContext = rolePrompts[role] || rolePrompts.team_member;
 
-  const systemPrompt = `${roleContext}
+  const deptContextMap: Record<string, string> = {
+    revenue: `Department context: 매출/성장 부서 (영업, 마케팅, 사업개발, PR)
+Focus on: 매출, 전환율, 파이프라인, CAC, LTV, ROAS, 리드 생성, 고객 획득, 캠페인 성과
+Use terminology common in sales and marketing teams.`,
+    strategy: `Department context: 전략/재무 부서 (전략, 재무, 회계, 법무)
+Focus on: P&L, ROI, 예산 집행률, 현금흐름, 손익분기점, 비용 구조, 리스크 분석, 규정 준수
+Use terminology common in finance and strategy teams.`,
+    product: `Department context: 제품/기술 부서 (서비스 기획, 개발, 프로덕트 디자인)
+Focus on: 사용자 지표(DAU/MAU), 이탈률, 전환 퍼널, 스프린트 속도, 버그율, 릴리스 주기, UX 지표
+Use terminology common in product and engineering teams.`,
+    content: `Department context: 콘텐츠/크리에이티브 부서 (콘텐츠 기획, 콘텐츠 디자인)
+Focus on: 도달률, 인게이지먼트, CTR, 조회수, 공유수, 콘텐츠 성과, 크리에이티브 효율
+Use terminology common in content and creative teams.`,
+    operations: `Department context: 운영/CS 부서 (운영, 물류, CS/CX)
+Focus on: 처리량, SLA 달성률, 응답 시간, 해결률, CSAT, NPS, 배송 정시율, 재고 회전율
+Use terminology common in operations and customer service teams.`,
+    hr: `Department context: 인사/조직 부서 (인사, 기타)
+Focus on: 이직률, 채용 전환율, 인당 생산성, 교육 이수율, 근속연수, 급여 벤치마크, 조직 건강도
+Use terminology common in HR and people operations teams.`,
+  };
+
+  const deptContext = deptGroup && deptContextMap[deptGroup] ? `\n\n${deptContextMap[deptGroup]}` : '';
+
+  const systemPrompt = `${roleContext}${deptContext}
 
 Guidelines:
 - All text content must be in Korean
