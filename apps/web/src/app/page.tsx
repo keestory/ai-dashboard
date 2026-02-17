@@ -290,7 +290,7 @@ export default function HomePage() {
             </div>
 
             {/* Team Lead */}
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow md:scale-[1.03] md:shadow-lg min-w-[300px] md:min-w-0 snap-center">
+            <div className="bg-white rounded-2xl border-2 border-violet-300 overflow-hidden hover:shadow-lg transition-shadow md:shadow-lg md:-my-2 min-w-[300px] md:min-w-0 snap-center ring-1 ring-violet-200">
               <div className="bg-violet-600 px-6 py-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
