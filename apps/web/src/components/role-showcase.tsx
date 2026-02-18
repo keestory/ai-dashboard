@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   FileSpreadsheet,
@@ -31,6 +31,16 @@ interface DepartmentShowcase {
   teamMember: RoleCardData;
   teamLead: RoleCardData;
   executive: RoleCardData;
+}
+
+function renderBoldText(text: string): ReactNode {
+  const parts = text.split(/(<strong>.*?<\/strong>)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('<strong>')) {
+      return <strong key={i}>{part.replace(/<\/?strong>/g, '')}</strong>;
+    }
+    return part;
+  });
 }
 
 const DEPARTMENT_SHOWCASES: DepartmentShowcase[] = [
@@ -170,7 +180,7 @@ const DEPARTMENT_SHOWCASES: DepartmentShowcase[] = [
       subtitle: '운영팀 실무자',
       insights: [
         '배송 지연 <strong>A물류사 비율 12%</strong>로 최고 - <strong>B물류사로 일부 물량 전환</strong> 필요',
-        '반품 사유 중 <strong>&quot;사이즈 불일치&quot; 43%</strong> - <strong>상품페이지 사이즈 가이드</strong> 개선',
+        '반품 사유 중 <strong>"사이즈 불일치" 43%</strong> - <strong>상품페이지 사이즈 가이드</strong> 개선',
         '재고 회전율 <strong>카테고리별 최대 5배 차이</strong> - 저회전 상품 <strong>프로모션 우선</strong>',
       ],
       badge: { text: '바로 실행 가능한 To-Do', icon: 'zap' },
@@ -249,10 +259,10 @@ export default function RoleShowcase() {
   const handleDeptChange = useCallback((dept: DepartmentShowcase) => {
     if (dept.id === activeDept.id) return;
     setIsTransitioning(true);
+    scrollRef.current?.scrollTo({ left: 0, behavior: 'auto' });
     setTimeout(() => {
       setActiveDept(dept);
       setIsTransitioning(false);
-      scrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
     }, 150);
   }, [activeDept.id]);
 
@@ -270,15 +280,19 @@ export default function RoleShowcase() {
         </div>
 
         {/* Department Pill Selector */}
-        <div className="flex items-center justify-center gap-2 flex-wrap mb-8">
+        <div className="flex items-center justify-center gap-2 flex-wrap mb-8" role="tablist" aria-label="부서 선택">
+          <span className="text-xs text-gray-400 font-medium uppercase tracking-wider mr-2 hidden sm:inline">부서</span>
           {DEPARTMENT_SHOWCASES.map((dept) => (
             <button
               key={dept.id}
+              role="tab"
+              aria-selected={activeDept.id === dept.id}
+              aria-label={`${dept.label} 부서 예시 보기`}
               onClick={() => handleDeptChange(dept)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer ${
                 activeDept.id === dept.id
-                  ? 'bg-gray-900 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-gray-900 text-white shadow-md scale-105'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:shadow-sm'
               }`}
             >
               {dept.label}
@@ -300,7 +314,11 @@ export default function RoleShowcase() {
         </div>
 
         {/* Role Cards */}
-        <div className={`transition-all duration-150 ${isTransitioning ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}>
+        <div
+          role="tabpanel"
+          aria-label={`${activeDept.label} 부서 분석 예시`}
+          className={`transition-all duration-150 ${isTransitioning ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}
+        >
           <div
             ref={scrollRef}
             className="flex md:grid md:grid-cols-3 gap-6 overflow-x-auto snap-x snap-mandatory pb-4 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide"
@@ -313,7 +331,7 @@ export default function RoleShowcase() {
               return (
                 <div
                   key={config.key}
-                  className={`bg-white rounded-2xl ${config.borderClass} overflow-hidden hover:shadow-lg transition-shadow min-w-[300px] md:min-w-0 snap-center ${config.extraClass}`}
+                  className={`bg-white rounded-2xl ${config.borderClass} overflow-hidden hover:shadow-lg transition-shadow min-w-[300px] md:min-w-0 snap-center flex flex-col ${config.extraClass}`}
                 >
                   <div className={`${config.headerBg} px-6 py-4`}>
                     <div className="flex items-center gap-2">
@@ -326,20 +344,19 @@ export default function RoleShowcase() {
                       </div>
                     </div>
                   </div>
-                  <div className="p-6 space-y-3">
+                  <div className="p-6 space-y-3 flex-1 flex flex-col">
                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">AI가 전달하는 내용</p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-2.5 flex-1">
                       {data.insights.map((insight, i) => (
                         <div key={i} className="flex items-start gap-2">
                           <CheckCircle className={`h-4 w-4 ${config.checkColor} flex-shrink-0 mt-0.5`} />
-                          <p
-                            className="text-sm text-gray-700"
-                            dangerouslySetInnerHTML={{ __html: insight }}
-                          />
+                          <p className="text-sm text-gray-700">
+                            {renderBoldText(insight)}
+                          </p>
                         </div>
                       ))}
                     </div>
-                    <div className="pt-2">
+                    <div className="pt-2 mt-auto">
                       <div className={`inline-flex items-center gap-1.5 px-3 py-1 ${config.badgeBg} rounded-full text-xs ${config.badgeText} font-medium`}>
                         <BadgeIcon className="h-3 w-3" />
                         {data.badge.text}
