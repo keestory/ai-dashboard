@@ -63,12 +63,6 @@ export default function HomePage() {
 
         <div className="relative max-w-7xl mx-auto">
           <div className="text-center max-w-4xl mx-auto">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-50 border border-blue-100 rounded-full text-sm text-blue-700 font-medium mb-8">
-              <Sparkles className="h-4 w-4" />
-              Claude AI 기반 역할 맞춤 분석
-            </div>
-
             {/* Headline - Role-based hooking */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 leading-[1.15] tracking-tight">
               데이터는 있는데,
