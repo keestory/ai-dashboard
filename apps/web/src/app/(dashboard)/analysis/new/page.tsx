@@ -37,11 +37,13 @@ const ROLES = [
 
 type RoleType = typeof ROLES[number]['id'];
 
-const ROLE_SUGGESTIONS = [
-  '퍼포먼스 마케팅', '콘텐츠 마케팅', '인플루언서 마케팅', 'B2B 영업', 'B2C 영업',
-  '서비스 기획', '데이터 분석', '프론트엔드 개발', '백엔드 개발', 'HR 채용',
-  'HR 조직문화', '재무 회계', '물류 운영', 'CS/CX', '브랜드 마케팅',
-  '사업개발', 'PR 홍보', 'UX 디자인', '프로덕트 매니저', '경영 전략',
+const ROLE_GROUPS = [
+  { category: '마케팅', roles: ['퍼포먼스 마케팅', '콘텐츠 마케팅', '인플루언서 마케팅', '브랜드 마케팅'] },
+  { category: '영업', roles: ['B2B 영업', 'B2C 영업', '사업개발'] },
+  { category: '제품/기획', roles: ['서비스 기획', '프로덕트 매니저', 'UX 디자인'] },
+  { category: '기술', roles: ['데이터 분석', '프론트엔드 개발', '백엔드 개발'] },
+  { category: '운영', roles: ['물류 운영', 'CS/CX', 'HR 채용', 'HR 조직문화'] },
+  { category: '경영/재무', roles: ['재무 회계', 'PR 홍보', '경영 전략'] },
 ];
 
 export default function NewAnalysisPage() {
@@ -72,9 +74,11 @@ export default function NewAnalysisPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredSuggestions = customRole.trim()
-    ? ROLE_SUGGESTIONS.filter(s => s.toLowerCase().includes(customRole.toLowerCase()))
-    : ROLE_SUGGESTIONS;
+  const filteredGroups = customRole.trim()
+    ? ROLE_GROUPS
+        .map(g => ({ ...g, roles: g.roles.filter(r => r.toLowerCase().includes(customRole.toLowerCase())) }))
+        .filter(g => g.roles.length > 0)
+    : [];
 
   // tRPC로 현재 워크스페이스 가져오기 (없으면 자동 생성)
   const { data: workspace, isLoading: workspaceLoading } = trpc.workspace.getCurrent.useQuery();
@@ -306,49 +310,70 @@ export default function NewAnalysisPage() {
               <p className="text-xs text-gray-500 mb-2">
                 구체적으로 입력할수록 더 맞춤화된 분석을 받을 수 있습니다
               </p>
+
+              {/* Grouped pill buttons - primary interaction */}
+              {!customRole && (
+                <div className="space-y-2.5 mb-3">
+                  {ROLE_GROUPS.map((group) => (
+                    <div key={group.category} className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs text-gray-400 font-medium w-16 flex-shrink-0">{group.category}</span>
+                      {group.roles.map((role) => (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() => setCustomRole(role)}
+                          className="px-2.5 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 border border-transparent transition-colors"
+                        >
+                          {role}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Search input */}
               <div className="relative" ref={suggestionsRef}>
                 <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   ref={roleInputRef}
                   type="text"
-                  placeholder="예: 퍼포먼스 마케팅, B2B SaaS 영업, UX 리서처..."
+                  placeholder={customRole ? '' : '또는 직접 입력하세요...'}
                   value={customRole}
                   onChange={(e) => { setCustomRole(e.target.value); setShowSuggestions(true); }}
-                  onFocus={() => setShowSuggestions(true)}
                   className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-gray-400"
                 />
 
-                {/* Suggestions dropdown */}
-                {showSuggestions && filteredSuggestions.length > 0 && (
-                  <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                    {filteredSuggestions.map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        onClick={() => {
-                          setCustomRole(suggestion);
-                          setShowSuggestions(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                      >
-                        {suggestion}
-                      </button>
+                {/* Grouped dropdown - only when typing */}
+                {showSuggestions && customRole.trim() && filteredGroups.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                    {filteredGroups.map((group) => (
+                      <div key={group.category}>
+                        <div className="px-3 py-1.5 text-xs font-medium text-gray-400 bg-gray-50 sticky top-0">
+                          {group.category}
+                        </div>
+                        {group.roles.map((role) => (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => { setCustomRole(role); setShowSuggestions(false); }}
+                            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+                          >
+                            {role}
+                          </button>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
-              {!customRole && (
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {ROLE_SUGGESTIONS.slice(0, 6).map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => setCustomRole(suggestion)}
-                      className="px-2.5 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
+
+              {/* Selection confirmation */}
+              {customRole && (
+                <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                  <Check className="h-3.5 w-3.5 text-blue-500" />
+                  <span><strong className="text-gray-700">{customRole}</strong> 관점으로 분석합니다</span>
+                  <button type="button" onClick={() => setCustomRole('')} className="text-gray-400 hover:text-gray-600 underline ml-auto">변경</button>
                 </div>
               )}
             </div>
