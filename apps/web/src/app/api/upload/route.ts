@@ -52,8 +52,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File | null;
     const workspaceId = formData.get('workspaceId') as string | null;
     const role = (formData.get('role') as string) || 'team_member';
-    const department = (formData.get('department') as string) || '';
-    const departmentGroup = (formData.get('departmentGroup') as string) || '';
+    const customRole = (formData.get('customRole') as string) || '';
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -113,13 +112,13 @@ export async function POST(request: NextRequest) {
         workspace_id: workspaceId,
         user_id: user.id,
         name: file.name,
-        description: `role:${role}|dept:${department}|deptGroup:${departmentGroup}|${roleLabels[role] || '팀원'} 관점 분석`,
+        description: `role:${role}|customRole:${customRole}|${customRole || roleLabels[role] || '팀원'} 관점 분석`,
         file_name: file.name,
         file_url: uploadData.path,
         file_size: file.size,
         file_type: extension as 'csv' | 'xls' | 'xlsx',
         status: 'pending',
-      })
+      } as any)
       .select()
       .single();
 

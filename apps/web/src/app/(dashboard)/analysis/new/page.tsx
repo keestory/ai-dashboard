@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileSpreadsheet, AlertCircle, RefreshCw, Loader2, Users, UserCog, Crown, Check, Zap, CheckCircle2, Search, ChevronDown, Building2, X } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, AlertCircle, RefreshCw, Loader2, Users, UserCog, Crown, Check, Zap, CheckCircle2, Briefcase } from 'lucide-react';
 import { Button, Card, FileUpload, Input } from '@repo/ui';
 import { useAuth } from '@/contexts/auth-context';
 import { trpc } from '@/lib/trpc';
@@ -37,73 +37,12 @@ const ROLES = [
 
 type RoleType = typeof ROLES[number]['id'];
 
-interface Department {
-  id: string;
-  label: string;
-  group: string;
-  groupId: string;
-}
-
-const DEPARTMENT_GROUPS = [
-  {
-    groupId: 'revenue',
-    group: '매출/성장',
-    departments: [
-      { id: 'sales', label: '영업' },
-      { id: 'marketing', label: '마케팅' },
-      { id: 'biz_dev', label: '사업개발' },
-      { id: 'pr', label: 'PR' },
-    ],
-  },
-  {
-    groupId: 'strategy',
-    group: '전략/재무',
-    departments: [
-      { id: 'strategy', label: '전략' },
-      { id: 'finance', label: '재무' },
-      { id: 'accounting', label: '회계' },
-      { id: 'legal', label: '법무' },
-    ],
-  },
-  {
-    groupId: 'product',
-    group: '제품/기술',
-    departments: [
-      { id: 'service_planning', label: '서비스 기획' },
-      { id: 'development', label: '개발' },
-      { id: 'product_design', label: '프로덕트 디자인' },
-    ],
-  },
-  {
-    groupId: 'content',
-    group: '콘텐츠/크리에이티브',
-    departments: [
-      { id: 'content_planning', label: '콘텐츠 기획' },
-      { id: 'content_design', label: '콘텐츠 디자인' },
-    ],
-  },
-  {
-    groupId: 'operations',
-    group: '운영/CS',
-    departments: [
-      { id: 'operations', label: '운영' },
-      { id: 'logistics', label: '물류' },
-      { id: 'cs', label: 'CS(CX)' },
-    ],
-  },
-  {
-    groupId: 'hr',
-    group: '인사/조직',
-    departments: [
-      { id: 'hr', label: '인사' },
-      { id: 'other', label: '기타' },
-    ],
-  },
+const ROLE_SUGGESTIONS = [
+  '퍼포먼스 마케팅', '콘텐츠 마케팅', '인플루언서 마케팅', 'B2B 영업', 'B2C 영업',
+  '서비스 기획', '데이터 분석', '프론트엔드 개발', '백엔드 개발', 'HR 채용',
+  'HR 조직문화', '재무 회계', '물류 운영', 'CS/CX', '브랜드 마케팅',
+  '사업개발', 'PR 홍보', 'UX 디자인', '프로덕트 매니저', '경영 전략',
 ];
-
-const ALL_DEPARTMENTS: Department[] = DEPARTMENT_GROUPS.flatMap(g =>
-  g.departments.map(d => ({ ...d, group: g.group, groupId: g.groupId }))
-);
 
 export default function NewAnalysisPage() {
   const router = useRouter();
@@ -112,43 +51,34 @@ export default function NewAnalysisPage() {
   const [file, setFile] = useState<File | null>(null);
   const [analysisName, setAnalysisName] = useState('');
   const [selectedRole, setSelectedRole] = useState<RoleType>('team_member');
-  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
-  const [deptSearch, setDeptSearch] = useState('');
-  const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
-  const deptRef = useRef<HTMLDivElement>(null);
+  const [customRole, setCustomRole] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const roleInputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [showUpgradeNudge, setShowUpgradeNudge] = useState(false);
 
-  // Close dropdown when clicking outside
+  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (deptRef.current && !deptRef.current.contains(e.target as Node)) {
-        setDeptDropdownOpen(false);
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node) &&
+          roleInputRef.current && !roleInputRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredDepartments = deptSearch
-    ? ALL_DEPARTMENTS.filter(d =>
-        d.label.toLowerCase().includes(deptSearch.toLowerCase()) ||
-        d.group.toLowerCase().includes(deptSearch.toLowerCase())
-      )
-    : ALL_DEPARTMENTS;
-
-  const filteredGroups = DEPARTMENT_GROUPS.map(g => ({
-    ...g,
-    departments: g.departments.filter(d =>
-      filteredDepartments.some(fd => fd.id === d.id)
-    ),
-  })).filter(g => g.departments.length > 0);
+  const filteredSuggestions = customRole.trim()
+    ? ROLE_SUGGESTIONS.filter(s => s.toLowerCase().includes(customRole.toLowerCase()))
+    : ROLE_SUGGESTIONS;
 
   // tRPC로 현재 워크스페이스 가져오기 (없으면 자동 생성)
   const { data: workspace, isLoading: workspaceLoading } = trpc.workspace.getCurrent.useQuery();
-  const workspaceId = workspace?.id || null;
+  const workspaceId = (workspace as any)?.id || null;
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
@@ -184,9 +114,8 @@ export default function NewAnalysisPage() {
       formData.append('file', file);
       formData.append('workspaceId', workspaceId);
       formData.append('role', selectedRole);
-      if (selectedDepartment) {
-        formData.append('department', selectedDepartment.id);
-        formData.append('departmentGroup', selectedDepartment.groupId);
+      if (customRole.trim()) {
+        formData.append('customRole', customRole.trim());
       }
 
       // Use XMLHttpRequest for upload progress tracking
@@ -228,8 +157,7 @@ export default function NewAnalysisPage() {
         body: JSON.stringify({
           analysisId: uploadResult.analysis.id,
           role: selectedRole,
-          department: selectedDepartment?.id,
-          departmentGroup: selectedDepartment?.groupId,
+          customRole: customRole.trim() || undefined,
         }),
         signal: AbortSignal.timeout(120000), // 2 min timeout
       });
@@ -369,99 +297,58 @@ export default function NewAnalysisPage() {
             </div>
           )}
 
-          {/* Department Selection */}
+          {/* Role / Department Input */}
           {file && (
-            <div ref={deptRef} className="relative">
+            <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                소속 부서
+                내 역할 / 소속 부서
               </label>
               <p className="text-xs text-gray-500 mb-2">
-                부서에 맞는 업계 용어와 KPI로 분석합니다
+                구체적으로 입력할수록 더 맞춤화된 분석을 받을 수 있습니다
               </p>
-              <div
-                className={`flex items-center border rounded-xl px-3 py-2.5 cursor-pointer transition-colors ${
-                  deptDropdownOpen ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-300 hover:border-gray-400'
-                }`}
-                onClick={() => setDeptDropdownOpen(true)}
-              >
-                <Building2 className="h-4 w-4 text-gray-400 mr-2 flex-shrink-0" />
-                {selectedDepartment ? (
-                  <div className="flex items-center flex-1 min-w-0">
-                    <span className="text-sm text-gray-900 truncate">{selectedDepartment.label}</span>
-                    <span className="text-xs text-gray-400 ml-1.5">({selectedDepartment.group})</span>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setSelectedDepartment(null); setDeptSearch(''); }}
-                      className="ml-auto p-0.5 hover:bg-gray-100 rounded"
-                    >
-                      <X className="h-3.5 w-3.5 text-gray-400" />
-                    </button>
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="부서를 검색하세요..."
-                    value={deptSearch}
-                    onChange={(e) => { setDeptSearch(e.target.value); setDeptDropdownOpen(true); }}
-                    className="flex-1 text-sm outline-none bg-transparent placeholder:text-gray-400"
-                    onFocus={() => setDeptDropdownOpen(true)}
-                  />
-                )}
-                <ChevronDown className={`h-4 w-4 text-gray-400 ml-1 flex-shrink-0 transition-transform ${deptDropdownOpen ? 'rotate-180' : ''}`} />
-              </div>
+              <div className="relative" ref={suggestionsRef}>
+                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  ref={roleInputRef}
+                  type="text"
+                  placeholder="예: 퍼포먼스 마케팅, B2B SaaS 영업, UX 리서처..."
+                  value={customRole}
+                  onChange={(e) => { setCustomRole(e.target.value); setShowSuggestions(true); }}
+                  onFocus={() => setShowSuggestions(true)}
+                  className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100 placeholder:text-gray-400"
+                />
 
-              {/* Dropdown */}
-              {deptDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
-                  {selectedDepartment && (
-                    <div className="px-3 py-2 border-b">
-                      <input
-                        type="text"
-                        placeholder="부서 검색..."
-                        value={deptSearch}
-                        onChange={(e) => setDeptSearch(e.target.value)}
-                        className="w-full text-sm outline-none placeholder:text-gray-400"
-                        autoFocus
-                      />
-                    </div>
-                  )}
-                  {filteredGroups.length === 0 ? (
-                    <div className="px-3 py-4 text-center text-sm text-gray-400">
-                      검색 결과가 없습니다
-                    </div>
-                  ) : (
-                    filteredGroups.map((group) => (
-                      <div key={group.groupId}>
-                        <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 sticky top-0">
-                          {group.group}
-                        </div>
-                        {group.departments.map((dept) => {
-                          const isSelected = selectedDepartment?.id === dept.id;
-                          return (
-                            <button
-                              key={dept.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedDepartment(ALL_DEPARTMENTS.find(d => d.id === dept.id)!);
-                                setDeptDropdownOpen(false);
-                                setDeptSearch('');
-                              }}
-                              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                                isSelected
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              <span className="flex items-center gap-2">
-                                {dept.label}
-                                {isSelected && <Check className="h-3.5 w-3.5 text-blue-500 ml-auto" />}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))
-                  )}
+                {/* Suggestions dropdown */}
+                {showSuggestions && filteredSuggestions.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {filteredSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => {
+                          setCustomRole(suggestion);
+                          setShowSuggestions(false);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {!customRole && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {ROLE_SUGGESTIONS.slice(0, 6).map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => setCustomRole(suggestion)}
+                      className="px-2.5 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
